@@ -31,9 +31,28 @@ header h1 { font-size: 1rem; font-weight: 600; color: #f9fafb; letter-spacing: 0
 .header-right { display: flex; align-items: center; gap: 10px; }
 
 #fontStatusMsg { font-size: 0.75rem; color: #6b7280; }
-#fontStatusMsg.ok  { color: #34d399; }
-#fontStatusMsg.err { color: #f87171; }
+#fontStatusMsg.ok      { color: #34d399; }
+#fontStatusMsg.err     { color: #f87171; }
 #fontStatusMsg.loading { color: #fbbf24; }
+#fontStatusMsg.warn    { color: #fbbf24; }
+
+.toggle-row { margin-bottom: 10px; }
+.toggle-row label {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  user-select: none;
+}
+.toggle-row input[type="checkbox"] {
+  accent-color: #2563eb;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
 
 .btn {
   background: #2563eb;
@@ -164,16 +183,38 @@ hr.divider { border: none; border-top: 1px solid #374151; margin: 14px 0; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 20px;
+  justify-content: space-between;
+  padding: 20px 20px 12px;
   background: #111827;
-  overflow: auto;
-  gap: 10px;
+  overflow: hidden;
+  gap: 0;
 }
 
-.keyboard-hint { font-size: 0.73rem; color: #4b5563; }
+.kb-scroll {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.keyboard-hint { font-size: 0.73rem; color: #4b5563; margin-bottom: 10px; }
 
 #kbSvg { display: block; }
+
+.zoom-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 380px;
+  padding-top: 10px;
+  flex-shrink: 0;
+}
+.zoom-bar span { font-size: 0.72rem; color: #6b7280; white-space: nowrap; }
+.zoom-bar #zoomDisp { color: #9ca3af; min-width: 34px; text-align: right; }
+.zoom-bar input[type="range"] { flex: 1; accent-color: #2563eb; cursor: pointer; }
 
 .kkey { cursor: pointer; }
 .kkey .kbg { fill: #1f2937; transition: fill 0.1s; rx: 5; }
@@ -183,7 +224,6 @@ hr.divider { border: none; border-top: 1px solid #374151; margin: 14px 0; }
   pointer-events: none;
   dominant-baseline: central;
   text-anchor: middle;
-  font-size: 14px;
   fill: #e5e7eb;
 }
 .kkey.sel .klabel { fill: #fff; }
@@ -318,6 +358,23 @@ hr.divider { border: none; border-top: 1px solid #374151; margin: 14px 0; }
       <input type="range" id="offsetYRange" min="-50" max="50" value="0">
     </div>
 
+    <div class="toggle-row">
+      <label for="syncToggle">
+        <input type="checkbox" id="syncToggle" checked>
+        Apply scale &amp; offset to all keys
+      </label>
+    </div>
+
+    <hr class="divider">
+
+    <h2>Layout</h2>
+    <div class="toggle-row">
+      <label for="qwertyToggle">
+        <input type="checkbox" id="qwertyToggle">
+        QWERTY layout (keys 0&ndash;29)
+      </label>
+    </div>
+
     <hr class="divider">
 
     <h2>Bulk Labels</h2>
@@ -338,8 +395,15 @@ hr.divider { border: none; border-top: 1px solid #374151; margin: 14px 0; }
 
   <!-- CENTER: Keyboard View -->
   <div class="keyboard-area">
-    <div class="keyboard-hint">Click a key to edit &mdash; labels shown with current case &amp; font</div>
-    <svg id="kbSvg"></svg>
+    <div class="keyboard-hint">Click a key to edit &mdash; labels preview scale &amp; offset</div>
+    <div class="kb-scroll">
+      <svg id="kbSvg"></svg>
+    </div>
+    <div class="zoom-bar">
+      <span>Zoom</span>
+      <input type="range" id="zoomRange" min="40" max="220" value="100">
+      <span id="zoomDisp">100%</span>
+    </div>
   </div>
 
   <!-- RIGHT SIDEBAR: Key Editor -->
@@ -423,6 +487,16 @@ const GRID_PITCH  = 18.1;   // mm — center-to-center on engraving table
 const GRID_COLS   = 6;
 const GRID_ROWS   = 6;
 
+// QWERTY labels for keys 0-29 (left then right per row, thumb keys 30-35 unlabeled)
+const QWERTY_LABELS = [
+  'q','w','e','r','t',  // 0-4:  left row 0
+  'y','u','i','o','p',  // 5-9:  right row 0
+  'a','s','d','f','g',  // 10-14: left row 1
+  'h','j','k','l',';',  // 15-19: right row 1
+  'z','x','c','v','b',  // 20-24: left row 2
+  'n','m',',','.',`'`,  // 25-29: right row 2
+];
+
 // Keyboard display scale: px per ZMK centunit
 const KB_SCALE    = 0.52;
 const KEY_UNIT    = 100 * KB_SCALE;   // px per key unit
@@ -438,14 +512,21 @@ const state = {
     y,
     label:   '',
     gridPos: id,   // default: sequential, key N → grid position N
+    scale:   null, // null = use global
+    offsetX: null,
+    offsetY: null,
   })),
-  fontFamily:  'Roboto',
-  fontCase:    'upper',
-  scale:       0.60,   // fraction of ENGRAVABLE height
-  offsetX:     0.00,   // fraction of ENGRAVABLE/2 → mm shift right
-  offsetY:     0.00,   // fraction of ENGRAVABLE/2 → mm shift down
-  selectedId:  null,
-  otFont:      null,   // opentype.js Font object (null = text fallback)
+  fontFamily:      'Roboto',
+  fontCase:        'upper',
+  scale:           0.60,   // global fraction of ENGRAVABLE height
+  offsetX:         0.00,   // global fraction of ENGRAVABLE/2 → mm shift right
+  offsetY:         0.00,   // global fraction of ENGRAVABLE/2 → mm shift down
+  syncScaleOffset: true,   // when true, all keys use global scale/offset
+  qwertyMode:      false,  // when true, keys 0-29 show QWERTY labels
+  zoom:            1.0,    // keyboard display zoom
+  selectedId:      null,
+  otFont:          null,   // opentype.js Font object (null = no path generation)
+  fontBuffer:      null,   // raw font bytes — embedded in SVG when paths unavailable
 };
 
 // =============================================================================
@@ -470,6 +551,26 @@ function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// Per-key scale/offset — fall back to global when sync is on or key has no override
+function keyScale(key)   { return (!state.syncScaleOffset && key.scale   !== null) ? key.scale   : state.scale;   }
+function keyOffsetX(key) { return (!state.syncScaleOffset && key.offsetX !== null) ? key.offsetX : state.offsetX; }
+function keyOffsetY(key) { return (!state.syncScaleOffset && key.offsetY !== null) ? key.offsetY : state.offsetY; }
+
+// Resolve effective label, honouring QWERTY mode (thumb keys 30-35 are always blank in QWERTY mode)
+function qwertyLabel(key) {
+  if (state.qwertyMode && key.id < QWERTY_LABELS.length) return QWERTY_LABELS[key.id];
+  return key.label;
+}
+
+// Detect font MIME type from magic bytes
+function detectFontMime(buffer) {
+  const b = new Uint8Array(buffer, 0, 4);
+  const sig = String.fromCharCode(b[0], b[1], b[2], b[3]);
+  if (sig === 'wOF2') return 'font/woff2';
+  if (sig === 'wOFF') return 'font/woff';
+  return 'font/ttf';
+}
+
 // Convert large ArrayBuffer to base64 in chunks (avoids call-stack limit)
 function arrayBufferToBase64(buffer) {
   const bytes = new Uint8Array(buffer);
@@ -489,7 +590,9 @@ async function loadFont(name) {
   msg.textContent = 'Loading…';
   msg.className = 'loading';
 
-  // Always load via CSS for display regardless of opentype success
+  const cssUrl = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(name)}:wght@400&display=swap`;
+
+  // CSS link so the UI renders the font
   let cssLink = document.getElementById('gfLink');
   if (!cssLink) {
     cssLink = document.createElement('link');
@@ -497,32 +600,59 @@ async function loadFont(name) {
     cssLink.rel = 'stylesheet';
     document.head.appendChild(cssLink);
   }
-  cssLink.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(name)}:wght@400&display=swap`;
+  cssLink.href = cssUrl;
 
-  // Try to load TTF via Google Webfonts Helper for opentype.js path generation
+  state.fontFamily = name;
+  state.otFont     = null;
+  state.fontBuffer = null;
+
+  // --- Strategy 1: Google Webfonts Helper → TTF (opentype.js native format) ---
+  let fontBuffer = null;
   try {
     const fontId = name.toLowerCase().replace(/\s+/g, '-');
     const apiRes = await fetch(`https://gwfh.mranftl.com/api/fonts/${fontId}?subsets=latin`);
-    if (!apiRes.ok) throw new Error('gwfh lookup failed');
-    const data = await apiRes.json();
-    const variant = data.variants.find(v => v.id === 'regular' || v.id === '400')
-                 ?? data.variants[0];
-    if (!variant?.urls?.ttf) throw new Error('No TTF URL');
+    if (apiRes.ok) {
+      const data = await apiRes.json();
+      const v = (data.variants ?? []).find(v => v.id === 'regular' || v.id === '400') ?? data.variants?.[0];
+      if (v?.urls?.ttf) {
+        const r = await fetch(v.urls.ttf);
+        if (r.ok) fontBuffer = await r.arrayBuffer();
+      }
+    }
+  } catch (_) { /* GWFH unreachable */ }
 
-    const ttfRes = await fetch(variant.urls.ttf);
-    if (!ttfRes.ok) throw new Error('TTF fetch failed');
-    const buffer = await ttfRes.arrayBuffer();
+  // --- Strategy 2: Google Fonts CSS → extract woff2/woff URL ---
+  if (!fontBuffer) {
+    try {
+      const cssRes = await fetch(cssUrl);
+      if (cssRes.ok) {
+        const css = await cssRes.text();
+        const urls = [...css.matchAll(/url\((https:\/\/fonts\.gstatic\.com\/[^)]+)\)/g)].map(m => m[1]);
+        if (urls.length) {
+          const r = await fetch(urls[urls.length - 1]); // last = latin subset
+          if (r.ok) fontBuffer = await r.arrayBuffer();
+        }
+      }
+    } catch (_) { /* Google Fonts unreachable */ }
+  }
 
-    state.otFont = opentype.parse(buffer);
-    state.fontFamily = name;
-    msg.textContent = `✓ ${name} (paths)`;
-    msg.className = 'ok';
-  } catch (e) {
-    console.warn('opentype font load failed, using text fallback:', e.message);
-    state.otFont = null;
-    state.fontFamily = name;
-    msg.textContent = `${name} (text mode)`;
-    msg.className = '';
+  // --- Parse for path generation; always keep bytes for SVG embedding ---
+  if (fontBuffer) {
+    state.fontBuffer = fontBuffer;
+    try {
+      state.otFont = opentype.parse(fontBuffer);
+      msg.textContent = `✓ ${name} (paths)`;
+      msg.className = 'ok';
+    } catch (parseErr) {
+      // Bytes fetched but opentype.js can't parse (e.g. woff2 Brotli variant)
+      // Font will still be embedded in exported SVG
+      console.warn('opentype.parse failed:', parseErr.message);
+      msg.textContent = `✓ ${name} (font embedded — open in Inkscape to convert to paths)`;
+      msg.className = 'ok';
+    }
+  } else {
+    msg.textContent = `${name} (font servers unreachable — export may use fallback font)`;
+    msg.className = 'warn';
   }
 
   updateFontPreview();
@@ -540,8 +670,8 @@ function updateFontPreview() {
 // OPENTYPE PATH UTILS
 // =============================================================================
 // Returns {pathData, bb} for label centered at (cx, cy) in mm.
-// offsetX/offsetY shift within the engravable area.
-function labelToPath(label, fontSizeMm, cxMm, cyMm) {
+// key is used to resolve per-key or global offsets.
+function labelToPath(label, fontSizeMm, cxMm, cyMm, key) {
   if (!label || !state.otFont) return null;
   const font = state.otFont;
   const probe = font.getPath(label, 0, 0, fontSizeMm);
@@ -550,8 +680,8 @@ function labelToPath(label, fontSizeMm, cxMm, cyMm) {
 
   const tw = bb.x2 - bb.x1;
   const th = bb.y2 - bb.y1;
-  const ox = state.offsetX * (ENGRAVABLE / 2);
-  const oy = state.offsetY * (ENGRAVABLE / 2);
+  const ox = keyOffsetX(key) * (ENGRAVABLE / 2);
+  const oy = keyOffsetY(key) * (ENGRAVABLE / 2);
 
   const px = cxMm - bb.x1 - tw / 2 + ox;
   const py = cyMm - bb.y1 - th / 2 + oy;
@@ -573,10 +703,14 @@ function renderKeyboard() {
   const W = maxX * KB_SCALE + KEY_PAD;
   const H = maxY * KB_SCALE + KEY_PAD;
 
-  svg.setAttribute('width',   W);
-  svg.setAttribute('height',  H);
+  // viewBox stays at natural size; zoom is applied via width/height
+  svg.setAttribute('width',   W * state.zoom);
+  svg.setAttribute('height',  H * state.zoom);
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.innerHTML = '';
+
+  // px/mm ratio in keyboard coordinate space
+  const PX_PER_MM = KEY_UNIT / 18.1;
 
   for (const key of state.keys) {
     const px = key.x * KB_SCALE + KEY_PAD / 2;
@@ -587,7 +721,12 @@ function renderKeyboard() {
     const cy = py + kh / 2;
 
     const isSel = key.id === state.selectedId;
-    const display = applyCase(key.label);
+    const display = applyCase(qwertyLabel(key));
+
+    // Per-key scale/offset applied to the keyboard preview label
+    const labelFontPx = keyScale(key) * ENGRAVABLE * PX_PER_MM;
+    const oxPx = keyOffsetX(key) * (ENGRAVABLE / 2) * PX_PER_MM;
+    const oyPx = keyOffsetY(key) * (ENGRAVABLE / 2) * PX_PER_MM;
 
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     g.setAttribute('class', `kkey${isSel ? ' sel' : ''}`);
@@ -604,8 +743,9 @@ function renderKeyboard() {
 
     const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     txt.setAttribute('class', 'klabel');
-    txt.setAttribute('x',  cx);
-    txt.setAttribute('y',  cy + 1);
+    txt.setAttribute('x',  (cx + oxPx).toFixed(2));
+    txt.setAttribute('y',  (cy + oyPx).toFixed(2));
+    txt.setAttribute('font-size', labelFontPx.toFixed(1));
     txt.setAttribute('font-family', `"${state.fontFamily}", system-ui`);
     txt.textContent = display || '\u00a0';
     g.appendChild(txt);
@@ -634,6 +774,35 @@ function selectKey(id) {
 // =============================================================================
 // KEY EDITOR (right sidebar)
 // =============================================================================
+function buildKeyPreviewSvg(key) {
+  const label = applyCase(qwertyLabel(key));
+  const fontSizeMm = keyScale(key) * ENGRAVABLE;
+  const PS = 200;
+  const mm2px = PS / ENGRAVABLE;
+  const previewFontPx = fontSizeMm * mm2px;
+  const oxPx = keyOffsetX(key) * (ENGRAVABLE / 2) * mm2px;
+  const oyPx = keyOffsetY(key) * (ENGRAVABLE / 2) * mm2px;
+
+  let inner = '';
+  if (state.otFont && label) {
+    const result = labelToPath(label, previewFontPx, PS / 2, PS / 2, key);
+    if (result) inner = `<path d="${result.pathData}" fill="#f9fafb"/>`;
+  }
+  if (!inner && label) {
+    inner = `<text x="${(PS/2+oxPx).toFixed(1)}" y="${(PS/2+oyPx).toFixed(1)}"
+      text-anchor="middle" dominant-baseline="central"
+      font-family="${escHtml(state.fontFamily)}, system-ui"
+      font-size="${previewFontPx.toFixed(1)}" fill="#f9fafb">${escHtml(label)}</text>`;
+  }
+  return `<svg viewBox="0 0 ${PS} ${PS}" xmlns="http://www.w3.org/2000/svg">
+  <rect width="${PS}" height="${PS}" fill="#1f2937"/>
+  <rect x="${(PS*0.02).toFixed(1)}" y="${(PS*0.02).toFixed(1)}"
+        width="${(PS*0.96).toFixed(1)}" height="${(PS*0.96).toFixed(1)}"
+        fill="none" stroke="#374151" stroke-width="1" stroke-dasharray="4 3"/>
+  ${inner}
+</svg>`;
+}
+
 function renderKeyEditor() {
   const pane = document.getElementById('keyEditorPane');
 
@@ -645,57 +814,44 @@ function renderKeyEditor() {
   const key = state.keys.find(k => k.id === state.selectedId);
   if (!key) return;
 
-  const label    = applyCase(key.label);
-  const gpRow    = Math.floor(key.gridPos / GRID_COLS) + 1;
-  const gpCol    = (key.gridPos % GRID_COLS) + 1;
-  const fontSizeMm = state.scale * ENGRAVABLE;
+  const gpRow = Math.floor(key.gridPos / GRID_COLS) + 1;
+  const gpCol = (key.gridPos % GRID_COLS) + 1;
+  const isThumb = key.id >= 30;
+  const labelReadonly = state.qwertyMode && !isThumb;
 
-  // Build key preview SVG (200×200 px ≡ 14.7×14.7 mm)
-  const PS = 200;
-  const mm2px = PS / ENGRAVABLE;
-  const previewFontPx = fontSizeMm * mm2px;
-  const ox = state.offsetX * (ENGRAVABLE / 2) * mm2px;
-  const oy = state.offsetY * (ENGRAVABLE / 2) * mm2px;
-
-  let previewInner = '';
-
-  if (state.otFont && label) {
-    const result = labelToPath(label, previewFontPx, PS / 2, PS / 2);
-    if (result) {
-      previewInner = `<path d="${result.pathData}" fill="#f9fafb"/>`;
-    }
-  }
-
-  if (!previewInner && label) {
-    // text fallback
-    previewInner = `<text
-      x="${(PS / 2 + ox).toFixed(1)}" y="${(PS / 2 + oy).toFixed(1)}"
-      text-anchor="middle" dominant-baseline="central"
-      font-family="${escHtml(state.fontFamily)}, system-ui"
-      font-size="${previewFontPx.toFixed(1)}"
-      fill="#f9fafb">${escHtml(label)}</text>`;
-  }
-
-  const previewSvg = `<svg viewBox="0 0 ${PS} ${PS}" xmlns="http://www.w3.org/2000/svg">
-  <rect width="${PS}" height="${PS}" fill="#1f2937"/>
-  <rect x="${(PS * 0.02).toFixed(1)}" y="${(PS * 0.02).toFixed(1)}"
-        width="${(PS * 0.96).toFixed(1)}" height="${(PS * 0.96).toFixed(1)}"
-        fill="none" stroke="#374151" stroke-width="1" stroke-dasharray="4 3"/>
-  ${previewInner}
-</svg>`;
+  // Per-key scale/offset sliders (only when sync is off)
+  const ks  = Math.round(keyScale(key)   * 100);
+  const kox = Math.round(keyOffsetX(key) * 100);
+  const koy = Math.round(keyOffsetY(key) * 100);
+  const perKeyControls = state.syncScaleOffset ? '' : `
+    <hr class="divider">
+    <div style="font-size:0.7rem;color:#6b7280;margin-bottom:8px">Per-key overrides</div>
+    <div class="form-row">
+      <label>Scale <span id="kScaleDisp">${ks}%</span></label>
+      <input type="range" id="kScaleRange" min="5" max="100" value="${ks}">
+    </div>
+    <div class="form-row">
+      <label>Offset X <span id="kOffXDisp">${kox > 0 ? '+' : ''}${kox}%</span></label>
+      <input type="range" id="kOffXRange" min="-50" max="50" value="${kox}">
+    </div>
+    <div class="form-row">
+      <label>Offset Y <span id="kOffYDisp">${koy > 0 ? '+' : ''}${koy}%</span></label>
+      <input type="range" id="kOffYRange" min="-50" max="50" value="${koy}">
+    </div>`;
 
   pane.innerHTML = `
     <div class="key-badge">
       <span class="num">#${key.id}</span>
-      <span class="info">Grid ${gpRow}&times;${gpCol}</span>
+      <span class="info">${isThumb ? 'Thumb' : `Grid ${gpRow}&times;${gpCol}`}</span>
     </div>
 
-    <div class="key-preview-wrap">${previewSvg}</div>
+    <div class="key-preview-wrap" id="keyPreviewWrap">${buildKeyPreviewSvg(key)}</div>
 
     <div class="form-row">
-      <label>Label</label>
+      <label>Label${labelReadonly ? ' <span style="color:#fbbf24">(QWERTY)</span>' : ''}</label>
       <input type="text" id="keyLabelInput" value="${escHtml(key.label)}"
-             placeholder="Text to engrave…" maxlength="8"
+             placeholder="${isThumb ? 'Symbol (optional)…' : 'Text to engrave…'}" maxlength="8"
+             ${labelReadonly ? 'disabled' : ''}
              style="font-family:&quot;${escHtml(state.fontFamily)}&quot;,system-ui">
     </div>
 
@@ -705,13 +861,16 @@ function renderKeyEditor() {
     </div>
     <div style="font-size:0.7rem;color:#6b7280;margin-top:-8px;margin-bottom:10px">
       Row ${gpRow}, Col ${gpCol} on the engraving table
-    </div>`;
+    </div>
+    ${perKeyControls}`;
 
-  document.getElementById('keyLabelInput').addEventListener('input', e => {
-    key.label = e.target.value;
-    renderKeyboard();
-    renderKeyEditor();
-  });
+  if (!labelReadonly) {
+    document.getElementById('keyLabelInput').addEventListener('input', e => {
+      key.label = e.target.value;
+      renderKeyboard();
+      document.getElementById('keyPreviewWrap').innerHTML = buildKeyPreviewSvg(key);
+    });
+  }
 
   document.getElementById('keyGridInput').addEventListener('change', e => {
     const v = parseInt(e.target.value);
@@ -720,14 +879,35 @@ function renderKeyEditor() {
       renderKeyEditor();
     }
   });
+
+  if (!state.syncScaleOffset) {
+    document.getElementById('kScaleRange').addEventListener('input', e => {
+      key.scale = parseInt(e.target.value) / 100;
+      document.getElementById('kScaleDisp').textContent = `${e.target.value}%`;
+      document.getElementById('keyPreviewWrap').innerHTML = buildKeyPreviewSvg(key);
+      renderKeyboard();
+    });
+    document.getElementById('kOffXRange').addEventListener('input', e => {
+      key.offsetX = parseInt(e.target.value) / 100;
+      const v = parseInt(e.target.value);
+      document.getElementById('kOffXDisp').textContent = `${v > 0 ? '+' : ''}${v}%`;
+      document.getElementById('keyPreviewWrap').innerHTML = buildKeyPreviewSvg(key);
+      renderKeyboard();
+    });
+    document.getElementById('kOffYRange').addEventListener('input', e => {
+      key.offsetY = parseInt(e.target.value) / 100;
+      const v = parseInt(e.target.value);
+      document.getElementById('kOffYDisp').textContent = `${v > 0 ? '+' : ''}${v}%`;
+      document.getElementById('keyPreviewWrap').innerHTML = buildKeyPreviewSvg(key);
+      renderKeyboard();
+    });
+  }
 }
 
 // =============================================================================
 // SVG EXPORT — engraving grid
 // =============================================================================
 function buildEngraveSVG(forPreview = false) {
-  const fontSizeMm = state.scale * ENGRAVABLE;
-
   // SVG canvas in mm, origin top-left
   // Grid center sits at (originX, originY) in SVG coordinates
   const margin = 5;
@@ -769,23 +949,24 @@ function buildEngraveSVG(forPreview = false) {
       );
     }
 
-    const display = applyCase(key.label);
+    const display = applyCase(qwertyLabel(key));
     if (!display) continue;
 
+    const kFontSizeMm = keyScale(key) * ENGRAVABLE;
     if (state.otFont) {
-      const result = labelToPath(display, fontSizeMm, cx, cy);
+      const result = labelToPath(display, kFontSizeMm, cx, cy, key);
       if (result) {
         parts.labels.push(`<path d="${result.pathData}" fill="black"/>`);
       }
     } else {
       // text fallback
-      const ox = state.offsetX * (ENGRAVABLE / 2);
-      const oy = state.offsetY * (ENGRAVABLE / 2);
+      const ox = keyOffsetX(key) * (ENGRAVABLE / 2);
+      const oy = keyOffsetY(key) * (ENGRAVABLE / 2);
       parts.labels.push(
         `<text x="${(cx + ox).toFixed(3)}" y="${(cy + oy).toFixed(3)}"` +
         ` text-anchor="middle" dominant-baseline="central"` +
         ` font-family="${escHtml(state.fontFamily)}, sans-serif"` +
-        ` font-size="${fontSizeMm.toFixed(3)}" fill="black">${escHtml(display)}</text>`
+        ` font-size="${kFontSizeMm.toFixed(3)}" fill="black">${escHtml(display)}</text>`
       );
     }
   }
@@ -801,10 +982,21 @@ function buildEngraveSVG(forPreview = false) {
     ` stroke="#f00" stroke-width="0.15"/>`
   );
 
-  // Font @import for text fallback (only needed when no paths)
-  const styleBlock = (!state.otFont && parts.labels.length)
-    ? `<style>@import url('https://fonts.googleapis.com/css2?family=${encodeURIComponent(state.fontFamily)}&amp;display=swap');</style>\n  `
-    : '';
+  // Font embedding: if no paths, embed the font binary so the SVG is self-contained
+  let styleBlock = '';
+  if (!state.otFont && parts.labels.length) {
+    if (state.fontBuffer) {
+      const mime = detectFontMime(state.fontBuffer);
+      const fmt  = mime === 'font/woff2' ? 'woff2' : mime === 'font/woff' ? 'woff' : 'truetype';
+      const b64  = arrayBufferToBase64(state.fontBuffer);
+      styleBlock = `<style>@font-face { font-family: "${escHtml(state.fontFamily)}";` +
+                   ` src: url("data:${mime};base64,${b64}") format("${fmt}"); }</style>\n  `;
+    } else {
+      // Last resort: external Google Fonts import (requires network in the SVG viewer)
+      styleBlock = `<style>@import url('https://fonts.googleapis.com/css2?family=` +
+                   `${encodeURIComponent(state.fontFamily)}&amp;display=swap');</style>\n  `;
+    }
+  }
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
@@ -909,6 +1101,7 @@ document.querySelectorAll('.case-btn').forEach(btn => {
 document.getElementById('scaleRange').addEventListener('input', e => {
   state.scale = parseInt(e.target.value) / 100;
   document.getElementById('scaleDisp').textContent = `${e.target.value}%`;
+  if (state.syncScaleOffset) renderKeyboard();
   renderKeyEditor();
 });
 
@@ -916,6 +1109,7 @@ document.getElementById('offsetXRange').addEventListener('input', e => {
   state.offsetX = parseInt(e.target.value) / 100;
   const v = parseInt(e.target.value);
   document.getElementById('offsetXDisp').textContent = `${v > 0 ? '+' : ''}${v}%`;
+  if (state.syncScaleOffset) renderKeyboard();
   renderKeyEditor();
 });
 
@@ -923,7 +1117,27 @@ document.getElementById('offsetYRange').addEventListener('input', e => {
   state.offsetY = parseInt(e.target.value) / 100;
   const v = parseInt(e.target.value);
   document.getElementById('offsetYDisp').textContent = `${v > 0 ? '+' : ''}${v}%`;
+  if (state.syncScaleOffset) renderKeyboard();
   renderKeyEditor();
+});
+
+document.getElementById('syncToggle').addEventListener('change', e => {
+  state.syncScaleOffset = e.target.checked;
+  renderKeyboard();
+  renderKeyEditor();
+});
+
+document.getElementById('qwertyToggle').addEventListener('change', e => {
+  state.qwertyMode = e.target.checked;
+  renderKeyboard();
+  renderKeyEditor();
+  syncBulkFromKeys();
+});
+
+document.getElementById('zoomRange').addEventListener('input', e => {
+  state.zoom = parseInt(e.target.value) / 100;
+  document.getElementById('zoomDisp').textContent = `${e.target.value}%`;
+  renderKeyboard();
 });
 
 document.getElementById('exportBtn').addEventListener('click', exportSVG);
@@ -942,6 +1156,11 @@ document.getElementById('rightSidebar').addEventListener('focusin', syncBulkFrom
 // =============================================================================
 // INIT
 // =============================================================================
+// Force checkboxes/sliders to match JS state (prevents browser form-state restoration mismatch)
+document.getElementById('syncToggle').checked  = state.syncScaleOffset;
+document.getElementById('qwertyToggle').checked = state.qwertyMode;
+document.getElementById('zoomRange').value      = Math.round(state.zoom * 100);
+document.getElementById('zoomDisp').textContent = `${Math.round(state.zoom * 100)}%`;
 renderKeyboard();
 loadFont('Roboto');
 </script>
