@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Key Font Generator</title>
+<script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #111827;
+  color: #e5e7eb;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+header {
+  background: #1f2937;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #374151;
+  height: 48px;
+}
+
+header h1 { font-size: 1rem; font-weight: 600; color: #f9fafb; letter-spacing: 0.02em; }
+
+.header-right { display: flex; align-items: center; gap: 10px; }
+
+#fontStatusMsg { font-size: 0.75rem; color: #6b7280; }
+#fontStatusMsg.ok  { color: #34d399; }
+#fontStatusMsg.err { color: #f87171; }
+#fontStatusMsg.loading { color: #fbbf24; }
+
+.btn {
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 500;
+  transition: background 0.15s;
+}
+.btn:hover  { background: #1d4ed8; }
+.btn.ghost  { background: #374151; }
+.btn.ghost:hover { background: #4b5563; }
+
+.layout {
+  display: grid;
+  grid-template-columns: 260px 1fr 270px;
+  height: calc(100vh - 48px);
+  overflow: hidden;
+}
+
+/* ---- SIDEBARS ---- */
+.sidebar {
+  background: #1f2937;
+  overflow-y: auto;
+  padding: 14px;
+  border-right: 1px solid #374151;
+}
+.sidebar.right { border-right: none; border-left: 1px solid #374151; }
+
+.sidebar h2 {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #6b7280;
+  margin-bottom: 14px;
+}
+
+.form-row { margin-bottom: 12px; }
+
+.form-row label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: #9ca3af;
+  margin-bottom: 4px;
+}
+.form-row label span { color: #e5e7eb; }
+
+.form-row input[type="text"],
+.form-row input[type="number"],
+.form-row select {
+  width: 100%;
+  background: #111827;
+  border: 1px solid #374151;
+  color: #e5e7eb;
+  padding: 5px 9px;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  outline: none;
+}
+.form-row input:focus, .form-row select:focus { border-color: #2563eb; }
+
+.form-row input[type="range"] {
+  width: 100%;
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+
+.font-load-row { display: flex; gap: 6px; }
+.font-load-row input { flex: 1; }
+
+.case-group { display: flex; gap: 6px; }
+.case-btn {
+  flex: 1;
+  background: #111827;
+  border: 1px solid #374151;
+  color: #9ca3af;
+  padding: 5px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  text-align: center;
+  transition: all 0.12s;
+}
+.case-btn.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+
+.font-preview-box {
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 4px;
+  padding: 8px;
+  text-align: center;
+  font-size: 1.8rem;
+  line-height: 1;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f9fafb;
+  overflow: hidden;
+  word-break: break-all;
+}
+
+hr.divider { border: none; border-top: 1px solid #374151; margin: 14px 0; }
+
+.bulk-textarea {
+  width: 100%;
+  background: #111827;
+  border: 1px solid #374151;
+  color: #e5e7eb;
+  padding: 6px 9px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-family: monospace;
+  resize: vertical;
+  min-height: 120px;
+  outline: none;
+  line-height: 1.5;
+}
+.bulk-textarea:focus { border-color: #2563eb; }
+.bulk-hint { font-size: 0.7rem; color: #6b7280; margin-top: 4px; }
+
+/* ---- KEYBOARD AREA ---- */
+.keyboard-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: #111827;
+  overflow: auto;
+  gap: 10px;
+}
+
+.keyboard-hint { font-size: 0.73rem; color: #4b5563; }
+
+#kbSvg { display: block; }
+
+.kkey { cursor: pointer; }
+.kkey .kbg { fill: #1f2937; transition: fill 0.1s; rx: 5; }
+.kkey:hover .kbg { fill: #2d3f55; }
+.kkey.sel .kbg  { fill: #1d4ed8; }
+.kkey .klabel {
+  pointer-events: none;
+  dominant-baseline: central;
+  text-anchor: middle;
+  font-size: 14px;
+  fill: #e5e7eb;
+}
+.kkey.sel .klabel { fill: #fff; }
+.kkey .knum {
+  pointer-events: none;
+  dominant-baseline: auto;
+  text-anchor: end;
+  font-size: 7px;
+  fill: #4b5563;
+}
+
+/* ---- KEY EDITOR ---- */
+.key-editor-empty {
+  color: #4b5563;
+  font-size: 0.82rem;
+  text-align: center;
+  padding-top: 30px;
+}
+
+.key-badge {
+  background: #111827;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.key-badge .num { font-size: 1.1rem; font-weight: 700; color: #60a5fa; }
+.key-badge .info { font-size: 0.73rem; color: #6b7280; }
+
+.key-preview-wrap {
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  aspect-ratio: 1;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.key-preview-wrap svg { width: 100%; height: 100%; display: block; }
+
+/* ---- MODAL ---- */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.75);
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+
+.modal-box {
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 20px;
+  max-width: 92vw;
+  max-height: 90vh;
+  overflow: auto;
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.modal-header h2 { font-size: 0.9rem; }
+
+#gridPreviewSvg {
+  display: block;
+  background: white;
+  border-radius: 4px;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Key Font Generator &mdash; Ohm Keyboard</h1>
+  <div class="header-right">
+    <span id="fontStatusMsg"></span>
+    <button class="btn ghost" id="previewBtn">Preview Grid</button>
+    <button class="btn" id="exportBtn">Export SVG</button>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- LEFT SIDEBAR: Font Settings -->
+  <div class="sidebar">
+    <h2>Font</h2>
+
+    <div class="form-row">
+      <label>Google Font</label>
+      <div class="font-load-row">
+        <input type="text" id="fontInput" value="Roboto" placeholder="Font name...">
+        <button class="btn ghost" id="loadFontBtn">Load</button>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label>Preview</label>
+      <div class="font-preview-box" id="fontPreview">Aa</div>
+    </div>
+
+    <div class="form-row">
+      <label>Case</label>
+      <div class="case-group">
+        <div class="case-btn active" data-case="upper">UPPER</div>
+        <div class="case-btn" data-case="lower">lower</div>
+        <div class="case-btn" data-case="as-typed">As typed</div>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label>Scale <span id="scaleDisp">60%</span></label>
+      <input type="range" id="scaleRange" min="5" max="100" value="60">
+    </div>
+
+    <div class="form-row">
+      <label>Offset X <span id="offsetXDisp">0%</span></label>
+      <input type="range" id="offsetXRange" min="-50" max="50" value="0">
+    </div>
+
+    <div class="form-row">
+      <label>Offset Y <span id="offsetYDisp">0%</span></label>
+      <input type="range" id="offsetYRange" min="-50" max="50" value="0">
+    </div>
+
+    <hr class="divider">
+
+    <h2>Bulk Labels</h2>
+    <div class="form-row">
+      <textarea class="bulk-textarea" id="bulkInput" placeholder="One label per line, in key order (0–35)..."></textarea>
+      <div class="bulk-hint">36 lines, one per key (top-left to bottom-right of each half, then thumbs).</div>
+    </div>
+    <div style="display:flex;gap:6px">
+      <button class="btn ghost" id="applyBulkBtn" style="flex:1">Apply</button>
+      <button class="btn ghost" id="clearAllBtn" style="flex:1">Clear All</button>
+    </div>
+
+    <hr class="divider">
+    <div class="bulk-hint" style="margin-top:4px">
+      Tip: if the SVG uses text (not paths), open in Inkscape &rarr; select all &rarr; Path &gt; Object to Path before engraving.
+    </div>
+  </div>
+
+  <!-- CENTER: Keyboard View -->
+  <div class="keyboard-area">
+    <div class="keyboard-hint">Click a key to edit &mdash; labels shown with current case &amp; font</div>
+    <svg id="kbSvg"></svg>
+  </div>
+
+  <!-- RIGHT SIDEBAR: Key Editor -->
+  <div class="sidebar right" id="rightSidebar">
+    <h2>Key Editor</h2>
+    <div id="keyEditorPane">
+      <div class="key-editor-empty">Select a key to edit</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Grid Preview Modal -->
+<div class="modal-overlay" id="previewModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2>Engraving Grid Preview (6&times;6, 18.1 mm pitch)</h2>
+      <button class="btn ghost" id="closePreviewBtn">Close</button>
+    </div>
+    <svg id="gridPreviewSvg"></svg>
+  </div>
+</div>
+
+<script>
+// =============================================================================
+// KEY DATA  (from ohm-layouts.dtsi)
+// Units: ZMK centiunits — 100 units = 1 key pitch (≈ 18.1 mm physical)
+// =============================================================================
+const KEYS_RAW = [
+  // id   x     y        — Left half row 0
+  [  0,    0,   37],
+  [  1,  100,   12],
+  [  2,  200,    0],
+  [  3,  300,   12],
+  [  4,  400,   24],
+  // Right half row 0
+  [  5,  700,   24],
+  [  6,  800,   12],
+  [  7,  900,    0],
+  [  8, 1000,   12],
+  [  9, 1100,   37],
+  // Left half row 1
+  [ 10,    0,  137],
+  [ 11,  100,  112],
+  [ 12,  200,  100],
+  [ 13,  300,  112],
+  [ 14,  400,  124],
+  // Right half row 1
+  [ 15,  700,  124],
+  [ 16,  800,  112],
+  [ 17,  900,  100],
+  [ 18, 1000,  112],
+  [ 19, 1100,  137],
+  // Left half row 2
+  [ 20,    0,  237],
+  [ 21,  100,  212],
+  [ 22,  200,  200],
+  [ 23,  300,  212],
+  [ 24,  400,  224],
+  // Right half row 2
+  [ 25,  700,  224],
+  [ 26,  800,  212],
+  [ 27,  900,  200],
+  [ 28, 1000,  212],
+  [ 29, 1100,  237],
+  // Left thumb
+  [ 30,  300,  312],
+  [ 31,  400,  324],
+  [ 32,  500,  336],
+  // Right thumb
+  [ 33,  600,  336],
+  [ 34,  700,  324],
+  [ 35,  800,  312],
+];
+
+// =============================================================================
+// CONSTANTS
+// =============================================================================
+const ENGRAVABLE  = 14.7;   // mm — square engravable area per keycap
+const GRID_PITCH  = 18.1;   // mm — center-to-center on engraving table
+const GRID_COLS   = 6;
+const GRID_ROWS   = 6;
+
+// Keyboard display scale: px per ZMK centunit
+const KB_SCALE    = 0.52;
+const KEY_UNIT    = 100 * KB_SCALE;   // px per key unit
+const KEY_PAD     = 3;               // px gap between keys
+
+// =============================================================================
+// STATE
+// =============================================================================
+const state = {
+  keys: KEYS_RAW.map(([id, x, y]) => ({
+    id,
+    x,
+    y,
+    label:   '',
+    gridPos: id,   // default: sequential, key N → grid position N
+  })),
+  fontFamily:  'Roboto',
+  fontCase:    'upper',
+  scale:       0.60,   // fraction of ENGRAVABLE height
+  offsetX:     0.00,   // fraction of ENGRAVABLE/2 → mm shift right
+  offsetY:     0.00,   // fraction of ENGRAVABLE/2 → mm shift down
+  selectedId:  null,
+  otFont:      null,   // opentype.js Font object (null = text fallback)
+};
+
+// =============================================================================
+// HELPERS
+// =============================================================================
+function applyCase(text) {
+  if (state.fontCase === 'upper') return text.toUpperCase();
+  if (state.fontCase === 'lower') return text.toLowerCase();
+  return text;
+}
+
+function gridCenter(pos) {
+  const col = pos % GRID_COLS;
+  const row = Math.floor(pos / GRID_COLS);
+  return {
+    x: (col - (GRID_COLS - 1) / 2) * GRID_PITCH,
+    y: (row - (GRID_ROWS - 1) / 2) * GRID_PITCH,
+  };
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Convert large ArrayBuffer to base64 in chunks (avoids call-stack limit)
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunk = 8192;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+// =============================================================================
+// FONT LOADING
+// =============================================================================
+async function loadFont(name) {
+  const msg = document.getElementById('fontStatusMsg');
+  msg.textContent = 'Loading…';
+  msg.className = 'loading';
+
+  // Always load via CSS for display regardless of opentype success
+  let cssLink = document.getElementById('gfLink');
+  if (!cssLink) {
+    cssLink = document.createElement('link');
+    cssLink.id = 'gfLink';
+    cssLink.rel = 'stylesheet';
+    document.head.appendChild(cssLink);
+  }
+  cssLink.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(name)}:wght@400&display=swap`;
+
+  // Try to load TTF via Google Webfonts Helper for opentype.js path generation
+  try {
+    const fontId = name.toLowerCase().replace(/\s+/g, '-');
+    const apiRes = await fetch(`https://gwfh.mranftl.com/api/fonts/${fontId}?subsets=latin`);
+    if (!apiRes.ok) throw new Error('gwfh lookup failed');
+    const data = await apiRes.json();
+    const variant = data.variants.find(v => v.id === 'regular' || v.id === '400')
+                 ?? data.variants[0];
+    if (!variant?.urls?.ttf) throw new Error('No TTF URL');
+
+    const ttfRes = await fetch(variant.urls.ttf);
+    if (!ttfRes.ok) throw new Error('TTF fetch failed');
+    const buffer = await ttfRes.arrayBuffer();
+
+    state.otFont = opentype.parse(buffer);
+    state.fontFamily = name;
+    msg.textContent = `✓ ${name} (paths)`;
+    msg.className = 'ok';
+  } catch (e) {
+    console.warn('opentype font load failed, using text fallback:', e.message);
+    state.otFont = null;
+    state.fontFamily = name;
+    msg.textContent = `${name} (text mode)`;
+    msg.className = '';
+  }
+
+  updateFontPreview();
+  renderKeyboard();
+  renderKeyEditor();
+}
+
+function updateFontPreview() {
+  const el = document.getElementById('fontPreview');
+  el.style.fontFamily = `"${state.fontFamily}", system-ui`;
+  el.textContent = applyCase('Aa');
+}
+
+// =============================================================================
+// OPENTYPE PATH UTILS
+// =============================================================================
+// Returns {pathData, bb} for label centered at (cx, cy) in mm.
+// offsetX/offsetY shift within the engravable area.
+function labelToPath(label, fontSizeMm, cxMm, cyMm) {
+  if (!label || !state.otFont) return null;
+  const font = state.otFont;
+  const probe = font.getPath(label, 0, 0, fontSizeMm);
+  const bb = probe.getBoundingBox();
+  if (bb.x1 === bb.x2 || bb.y1 === bb.y2) return null;
+
+  const tw = bb.x2 - bb.x1;
+  const th = bb.y2 - bb.y1;
+  const ox = state.offsetX * (ENGRAVABLE / 2);
+  const oy = state.offsetY * (ENGRAVABLE / 2);
+
+  const px = cxMm - bb.x1 - tw / 2 + ox;
+  const py = cyMm - bb.y1 - th / 2 + oy;
+
+  const finalPath = font.getPath(label, px, py, fontSizeMm);
+  return { pathData: finalPath.toPathData(4), bb };
+}
+
+// =============================================================================
+// KEYBOARD SVG RENDER
+// =============================================================================
+function renderKeyboard() {
+  const svg = document.getElementById('kbSvg');
+
+  // Bounding box of all keys
+  const maxX = 1100 + 100;  // rightmost key x + key width
+  const maxY = 336  + 100;  // bottom-most key y + key height
+
+  const W = maxX * KB_SCALE + KEY_PAD;
+  const H = maxY * KB_SCALE + KEY_PAD;
+
+  svg.setAttribute('width',   W);
+  svg.setAttribute('height',  H);
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = '';
+
+  for (const key of state.keys) {
+    const px = key.x * KB_SCALE + KEY_PAD / 2;
+    const py = key.y * KB_SCALE + KEY_PAD / 2;
+    const kw = KEY_UNIT - KEY_PAD;
+    const kh = KEY_UNIT - KEY_PAD;
+    const cx = px + kw / 2;
+    const cy = py + kh / 2;
+
+    const isSel = key.id === state.selectedId;
+    const display = applyCase(key.label);
+
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('class', `kkey${isSel ? ' sel' : ''}`);
+    g.dataset.id = key.id;
+
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('class', 'kbg');
+    rect.setAttribute('x',  px);
+    rect.setAttribute('y',  py);
+    rect.setAttribute('width',  kw);
+    rect.setAttribute('height', kh);
+    rect.setAttribute('rx', 5);
+    g.appendChild(rect);
+
+    const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    txt.setAttribute('class', 'klabel');
+    txt.setAttribute('x',  cx);
+    txt.setAttribute('y',  cy + 1);
+    txt.setAttribute('font-family', `"${state.fontFamily}", system-ui`);
+    txt.textContent = display || '\u00a0';
+    g.appendChild(txt);
+
+    const numTxt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    numTxt.setAttribute('class', 'knum');
+    numTxt.setAttribute('x', px + kw - 2);
+    numTxt.setAttribute('y', py + kh - 2);
+    numTxt.textContent = key.id;
+    g.appendChild(numTxt);
+
+    g.addEventListener('click', () => selectKey(key.id));
+    svg.appendChild(g);
+  }
+}
+
+// =============================================================================
+// KEY SELECTION
+// =============================================================================
+function selectKey(id) {
+  state.selectedId = id;
+  renderKeyboard();
+  renderKeyEditor();
+}
+
+// =============================================================================
+// KEY EDITOR (right sidebar)
+// =============================================================================
+function renderKeyEditor() {
+  const pane = document.getElementById('keyEditorPane');
+
+  if (state.selectedId === null) {
+    pane.innerHTML = '<div class="key-editor-empty">Select a key to edit</div>';
+    return;
+  }
+
+  const key = state.keys.find(k => k.id === state.selectedId);
+  if (!key) return;
+
+  const label    = applyCase(key.label);
+  const gpRow    = Math.floor(key.gridPos / GRID_COLS) + 1;
+  const gpCol    = (key.gridPos % GRID_COLS) + 1;
+  const fontSizeMm = state.scale * ENGRAVABLE;
+
+  // Build key preview SVG (200×200 px ≡ 14.7×14.7 mm)
+  const PS = 200;
+  const mm2px = PS / ENGRAVABLE;
+  const previewFontPx = fontSizeMm * mm2px;
+  const ox = state.offsetX * (ENGRAVABLE / 2) * mm2px;
+  const oy = state.offsetY * (ENGRAVABLE / 2) * mm2px;
+
+  let previewInner = '';
+
+  if (state.otFont && label) {
+    const result = labelToPath(label, previewFontPx, PS / 2, PS / 2);
+    if (result) {
+      previewInner = `<path d="${result.pathData}" fill="#f9fafb"/>`;
+    }
+  }
+
+  if (!previewInner && label) {
+    // text fallback
+    previewInner = `<text
+      x="${(PS / 2 + ox).toFixed(1)}" y="${(PS / 2 + oy).toFixed(1)}"
+      text-anchor="middle" dominant-baseline="central"
+      font-family="${escHtml(state.fontFamily)}, system-ui"
+      font-size="${previewFontPx.toFixed(1)}"
+      fill="#f9fafb">${escHtml(label)}</text>`;
+  }
+
+  const previewSvg = `<svg viewBox="0 0 ${PS} ${PS}" xmlns="http://www.w3.org/2000/svg">
+  <rect width="${PS}" height="${PS}" fill="#1f2937"/>
+  <rect x="${(PS * 0.02).toFixed(1)}" y="${(PS * 0.02).toFixed(1)}"
+        width="${(PS * 0.96).toFixed(1)}" height="${(PS * 0.96).toFixed(1)}"
+        fill="none" stroke="#374151" stroke-width="1" stroke-dasharray="4 3"/>
+  ${previewInner}
+</svg>`;
+
+  pane.innerHTML = `
+    <div class="key-badge">
+      <span class="num">#${key.id}</span>
+      <span class="info">Grid ${gpRow}&times;${gpCol}</span>
+    </div>
+
+    <div class="key-preview-wrap">${previewSvg}</div>
+
+    <div class="form-row">
+      <label>Label</label>
+      <input type="text" id="keyLabelInput" value="${escHtml(key.label)}"
+             placeholder="Text to engrave…" maxlength="8"
+             style="font-family:&quot;${escHtml(state.fontFamily)}&quot;,system-ui">
+    </div>
+
+    <div class="form-row">
+      <label>Grid position <span>0 – 35</span></label>
+      <input type="number" id="keyGridInput" min="0" max="35" value="${key.gridPos}">
+    </div>
+    <div style="font-size:0.7rem;color:#6b7280;margin-top:-8px;margin-bottom:10px">
+      Row ${gpRow}, Col ${gpCol} on the engraving table
+    </div>`;
+
+  document.getElementById('keyLabelInput').addEventListener('input', e => {
+    key.label = e.target.value;
+    renderKeyboard();
+    renderKeyEditor();
+  });
+
+  document.getElementById('keyGridInput').addEventListener('change', e => {
+    const v = parseInt(e.target.value);
+    if (!isNaN(v) && v >= 0 && v <= 35) {
+      key.gridPos = v;
+      renderKeyEditor();
+    }
+  });
+}
+
+// =============================================================================
+// SVG EXPORT — engraving grid
+// =============================================================================
+function buildEngraveSVG(forPreview = false) {
+  const fontSizeMm = state.scale * ENGRAVABLE;
+
+  // SVG canvas in mm, origin top-left
+  // Grid center sits at (originX, originY) in SVG coordinates
+  const margin = 5;
+  const totalW = (GRID_COLS - 1) * GRID_PITCH + ENGRAVABLE;
+  const totalH = (GRID_ROWS - 1) * GRID_PITCH + ENGRAVABLE;
+  const svgW   = totalW + margin * 2;
+  const svgH   = totalH + margin * 2;
+  const originX = margin + totalW / 2;
+  const originY = margin + totalH / 2;
+
+  const parts = {
+    cells:  [],
+    labels: [],
+    guides: [],
+  };
+
+  // Cell outlines + labels
+  for (const key of state.keys) {
+    const gp = key.gridPos;
+    if (gp < 0 || gp >= GRID_COLS * GRID_ROWS) continue;
+
+    const gc = gridCenter(gp);
+    const cx = originX + gc.x;
+    const cy = originY + gc.y;
+    const ex = cx - ENGRAVABLE / 2;
+    const ey = cy - ENGRAVABLE / 2;
+
+    parts.cells.push(
+      `<rect x="${ex.toFixed(3)}" y="${ey.toFixed(3)}"` +
+      ` width="${ENGRAVABLE}" height="${ENGRAVABLE}"` +
+      ` fill="none" stroke="#cccccc" stroke-width="0.1"/>`
+    );
+
+    if (forPreview) {
+      parts.guides.push(
+        `<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="0.25" fill="#999"/>`,
+        `<text x="${(ex + 0.8).toFixed(2)}" y="${(ey + 2.2).toFixed(2)}"` +
+        ` font-size="1.8" fill="#bbb">${gp}</text>`
+      );
+    }
+
+    const display = applyCase(key.label);
+    if (!display) continue;
+
+    if (state.otFont) {
+      const result = labelToPath(display, fontSizeMm, cx, cy);
+      if (result) {
+        parts.labels.push(`<path d="${result.pathData}" fill="black"/>`);
+      }
+    } else {
+      // text fallback
+      const ox = state.offsetX * (ENGRAVABLE / 2);
+      const oy = state.offsetY * (ENGRAVABLE / 2);
+      parts.labels.push(
+        `<text x="${(cx + ox).toFixed(3)}" y="${(cy + oy).toFixed(3)}"` +
+        ` text-anchor="middle" dominant-baseline="central"` +
+        ` font-family="${escHtml(state.fontFamily)}, sans-serif"` +
+        ` font-size="${fontSizeMm.toFixed(3)}" fill="black">${escHtml(display)}</text>`
+      );
+    }
+  }
+
+  // Crosshair at grid origin (0,0) for table alignment
+  const ch = 3; // mm half-length
+  parts.guides.push(
+    `<line x1="${(originX - ch).toFixed(2)}" y1="${originY.toFixed(2)}"` +
+    `      x2="${(originX + ch).toFixed(2)}" y2="${originY.toFixed(2)}"` +
+    ` stroke="#f00" stroke-width="0.15"/>`,
+    `<line x1="${originX.toFixed(2)}" y1="${(originY - ch).toFixed(2)}"` +
+    `      x2="${originX.toFixed(2)}" y2="${(originY + ch).toFixed(2)}"` +
+    ` stroke="#f00" stroke-width="0.15"/>`
+  );
+
+  // Font @import for text fallback (only needed when no paths)
+  const styleBlock = (!state.otFont && parts.labels.length)
+    ? `<style>@import url('https://fonts.googleapis.com/css2?family=${encodeURIComponent(state.fontFamily)}&amp;display=swap');</style>\n  `
+    : '';
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 ${svgW.toFixed(3)} ${svgH.toFixed(3)}"
+     width="${svgW.toFixed(3)}mm" height="${svgH.toFixed(3)}mm">
+  ${styleBlock}<!-- Engravable area outlines (14.7 x 14.7 mm each) -->
+  ${parts.cells.join('\n  ')}
+
+  <!-- Guides: center crosshair + grid position labels -->
+  ${parts.guides.join('\n  ')}
+
+  <!-- Engraved labels -->
+  ${parts.labels.join('\n  ')}
+</svg>`;
+}
+
+function exportSVG() {
+  const svg  = buildEngraveSVG(false);
+  const blob = new Blob([svg], { type: 'image/svg+xml' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'keycap-engrave.svg';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// =============================================================================
+// GRID PREVIEW MODAL
+// =============================================================================
+function showPreview() {
+  const svgStr = buildEngraveSVG(true);
+
+  // Parse and inject into preview SVG element
+  const parsed = new DOMParser().parseFromString(svgStr, 'image/svg+xml');
+  const src = parsed.documentElement;
+
+  const previewEl = document.getElementById('gridPreviewSvg');
+  previewEl.innerHTML = src.innerHTML;
+
+  // Copy viewBox/dimensions, scale to fit screen
+  const vb = src.getAttribute('viewBox').split(' ').map(Number);
+  const aspect = vb[2] / vb[3];
+  const maxW = Math.min(window.innerWidth * 0.85, 800);
+  const dispH = Math.round(maxW / aspect);
+  previewEl.setAttribute('viewBox', src.getAttribute('viewBox'));
+  previewEl.setAttribute('width',  maxW);
+  previewEl.setAttribute('height', dispH);
+
+  document.getElementById('previewModal').classList.add('open');
+}
+
+// =============================================================================
+// BULK EDIT
+// =============================================================================
+function applyBulk() {
+  const lines = document.getElementById('bulkInput').value.split('\n');
+  state.keys.forEach((key, i) => {
+    key.label = (lines[i] ?? '').trim();
+  });
+  renderKeyboard();
+  renderKeyEditor();
+}
+
+function syncBulkFromKeys() {
+  document.getElementById('bulkInput').value =
+    state.keys.map(k => k.label).join('\n');
+}
+
+function clearAll() {
+  state.keys.forEach(k => { k.label = ''; });
+  document.getElementById('bulkInput').value = '';
+  renderKeyboard();
+  renderKeyEditor();
+}
+
+// =============================================================================
+// EVENT WIRING
+// =============================================================================
+document.getElementById('loadFontBtn').addEventListener('click', () => {
+  const name = document.getElementById('fontInput').value.trim();
+  if (name) loadFont(name);
+});
+document.getElementById('fontInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    const name = e.target.value.trim();
+    if (name) loadFont(name);
+  }
+});
+
+document.querySelectorAll('.case-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.case-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.fontCase = btn.dataset.case;
+    updateFontPreview();
+    renderKeyboard();
+    renderKeyEditor();
+  });
+});
+
+document.getElementById('scaleRange').addEventListener('input', e => {
+  state.scale = parseInt(e.target.value) / 100;
+  document.getElementById('scaleDisp').textContent = `${e.target.value}%`;
+  renderKeyEditor();
+});
+
+document.getElementById('offsetXRange').addEventListener('input', e => {
+  state.offsetX = parseInt(e.target.value) / 100;
+  const v = parseInt(e.target.value);
+  document.getElementById('offsetXDisp').textContent = `${v > 0 ? '+' : ''}${v}%`;
+  renderKeyEditor();
+});
+
+document.getElementById('offsetYRange').addEventListener('input', e => {
+  state.offsetY = parseInt(e.target.value) / 100;
+  const v = parseInt(e.target.value);
+  document.getElementById('offsetYDisp').textContent = `${v > 0 ? '+' : ''}${v}%`;
+  renderKeyEditor();
+});
+
+document.getElementById('exportBtn').addEventListener('click', exportSVG);
+document.getElementById('previewBtn').addEventListener('click', showPreview);
+document.getElementById('closePreviewBtn').addEventListener('click', () => {
+  document.getElementById('previewModal').classList.remove('open');
+});
+
+document.getElementById('applyBulkBtn').addEventListener('click', applyBulk);
+document.getElementById('clearAllBtn').addEventListener('click', clearAll);
+
+// Keep bulk textarea in sync when labels are edited via the key editor
+// (already handled by renderKeyEditor — sync on open)
+document.getElementById('rightSidebar').addEventListener('focusin', syncBulkFromKeys);
+
+// =============================================================================
+// INIT
+// =============================================================================
+renderKeyboard();
+loadFont('Roboto');
+</script>
+</body>
+</html>
