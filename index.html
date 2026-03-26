@@ -688,6 +688,14 @@ function updateFontPreview() {
 function labelToPath(label, fontSizeMm, cxMm, cyMm, key) {
   if (!label || !state.otFont) return null;
   const font = state.otFont;
+
+  // Reject if any character maps to .notdef (glyph index 0 = not in font).
+  // Without this check opentype.js silently renders the .notdef box glyph,
+  // or returns a zero-area path for fonts with an empty .notdef.
+  for (const ch of label) {
+    if (font.charToGlyph(ch).index === 0) return null;
+  }
+
   const probe = font.getPath(label, 0, 0, fontSizeMm);
   const bb = probe.getBoundingBox();
   if (bb.x1 === bb.x2 || bb.y1 === bb.y2) return null;
@@ -942,9 +950,10 @@ function buildEngraveSVG(forPreview = false) {
   const originY = margin + totalH / 2;
 
   const parts = {
-    cells:  [],
-    labels: [],
-    guides: [],
+    cells:      [],
+    labels:     [],
+    textLabels: [],
+    guides:     [],
   };
 
   // Cell outlines + labels
@@ -976,19 +985,20 @@ function buildEngraveSVG(forPreview = false) {
     if (!display) continue;
 
     const kFontSizeMm = keyScale(key) * ENGRAVABLE;
-    if (state.otFont) {
-      const result = labelToPath(display, kFontSizeMm, cx, cy, key);
-      if (result) {
-        parts.labels.push(`<path d="${result.pathData}" fill="black"/>`);
-      }
+    const pathResult  = state.otFont ? labelToPath(display, kFontSizeMm, cx, cy, key) : null;
+
+    if (pathResult) {
+      parts.labels.push(`<path d="${pathResult.pathData}" fill="black"/>`);
     } else {
-      // text fallback
+      // Text fallback — used when: no font loaded, font doesn't contain this glyph
+      // (e.g. ♦ ♠ on a Latin-only font), or woff2 parse failed.
+      // Font stack includes common symbol fonts so non-Latin glyphs render correctly.
       const ox = keyOffsetX(key) * (ENGRAVABLE / 2);
       const oy = keyOffsetY(key) * (ENGRAVABLE / 2);
-      parts.labels.push(
+      parts.textLabels.push(
         `<text x="${(cx + ox).toFixed(3)}" y="${(cy + oy).toFixed(3)}"` +
         ` text-anchor="middle" dominant-baseline="central"` +
-        ` font-family="${escHtml(state.fontFamily)}, sans-serif"` +
+        ` font-family="${escHtml(state.fontFamily)}, 'Segoe UI Symbol', 'Apple Symbols', 'Noto Sans Symbols', sans-serif"` +
         ` font-size="${kFontSizeMm.toFixed(3)}" fill="black">${escHtml(display)}</text>`
       );
     }
@@ -1012,7 +1022,7 @@ function buildEngraveSVG(forPreview = false) {
   // Export (forPreview=false): embed the font binary as a base64 data URI so the file is
   //   fully self-contained (no internet required when opened in Inkscape / other editors).
   let styleBlock = '';
-  if (!state.otFont && parts.labels.length && !forPreview) {
+  if (parts.textLabels.length > 0 && !forPreview) {
     if (state.fontBuffer) {
       const mime = detectFontMime(state.fontBuffer);
       const fmt  = mime === 'font/woff2' ? 'woff2' : mime === 'font/woff' ? 'woff' : 'truetype';
@@ -1033,8 +1043,11 @@ function buildEngraveSVG(forPreview = false) {
   <!-- Guides: center crosshair + grid position labels -->
   ${parts.guides.join('\n  ')}
 
-  <!-- Engraved labels -->
+  <!-- Engraved labels (paths) -->
   ${parts.labels.join('\n  ')}
+
+  <!-- Engraved labels (text fallback — glyphs missing from font or no font loaded) -->
+  ${parts.textLabels.join('\n  ')}
 </svg>`;
 }
 
