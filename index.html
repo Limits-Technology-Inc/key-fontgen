@@ -430,62 +430,64 @@ hr.divider { border: none; border-top: 1px solid #374151; margin: 14px 0; }
 <script>
 // =============================================================================
 // KEY DATA  (from ohm-layouts.dtsi)
-// Units: ZMK centiunits — 100 units = 1 key pitch (≈ 18.1 mm physical)
+// Units: mm — real-world key centre positions from Fusion 360 (X, Z axes).
+// Right half is mirrored from the left half across X = 0.
+// The two halves are angled 20° apart (10° each side) — already baked into
+// the coordinates below, so no additional rotation is applied.
 // =============================================================================
 const KEYS_RAW = [
-  // id   x     y        — Left half row 0
-  [  0,    0,   37],
-  [  1,  100,   12],
-  [  2,  200,    0],
-  [  3,  300,   12],
-  [  4,  400,   24],
-  // Right half row 0
-  [  5,  700,   24],
-  [  6,  800,   12],
-  [  7,  900,    0],
-  [  8, 1000,   12],
-  [  9, 1100,   37],
-  // Left half row 1
-  [ 10,    0,  137],
-  [ 11,  100,  112],
-  [ 12,  200,  100],
-  [ 13,  300,  112],
-  [ 14,  400,  124],
-  // Right half row 1
-  [ 15,  700,  124],
-  [ 16,  800,  112],
-  [ 17,  900,  100],
-  [ 18, 1000,  112],
-  [ 19, 1100,  137],
-  // Left half row 2
-  [ 20,    0,  237],
-  [ 21,  100,  212],
-  [ 22,  200,  200],
-  [ 23,  300,  212],
-  [ 24,  400,  224],
-  // Right half row 2
-  [ 25,  700,  224],
-  [ 26,  800,  212],
-  [ 27,  900,  200],
-  [ 28, 1000,  212],
-  [ 29, 1100,  237],
+  // id      x         y       — Left row 0  (Q W E R T)
+  [  0,  -91.060,  -10.503],
+  [  1,  -72.411,  -12.037],
+  [  2,  -54.169,  -11.258],
+  [  3,  -36.760,   -5.751],
+  [  4,  -19.352,   -0.245],
+  // Right row 0  (Y U I O P) — mirrored, inner→outer
+  [  5,   19.352,   -0.245],
+  [  6,   36.760,   -5.751],
+  [  7,   54.169,  -11.258],
+  [  8,   72.411,  -12.037],
+  [  9,   91.060,  -10.503],
+  // Left row 1  (A S D F G)
+  [ 10,  -94.030,    6.338],
+  [ 11,  -75.380,    4.803],
+  [ 12,  -57.138,    5.582],
+  [ 13,  -39.730,   11.089],
+  [ 14,  -22.322,   16.595],
+  // Right row 1  (H J K L ;)
+  [ 15,   22.322,   16.595],
+  [ 16,   39.730,   11.089],
+  [ 17,   57.138,    5.582],
+  [ 18,   75.380,    4.803],
+  [ 19,   94.030,    6.338],
+  // Left row 2  (Z X C V B)
+  [ 20,  -96.999,   23.178],
+  [ 21,  -78.349,   21.643],
+  [ 22,  -60.107,   22.423],
+  [ 23,  -42.699,   27.929],
+  [ 24,  -25.291,   33.436],
+  // Right row 2  (N M , . ')
+  [ 25,   25.291,   33.436],
+  [ 26,   42.699,   27.929],
+  [ 27,   60.107,   22.423],
+  [ 28,   78.349,   21.643],
+  [ 29,   96.999,   23.178],
   // Left thumb
-  [ 30,  300,  312],
-  [ 31,  400,  324],
-  [ 32,  500,  336],
+  [ 30,  -45.669,   44.769],
+  [ 31,  -28.260,   50.276],
+  [ 32,  -10.852,   55.782],
   // Right thumb
-  [ 33,  600,  336],
-  [ 34,  700,  324],
-  [ 35,  800,  312],
+  [ 33,   10.852,   55.782],
+  [ 34,   28.260,   50.276],
+  [ 35,   45.669,   44.769],
 ];
 
 // =============================================================================
 // CONSTANTS
 // =============================================================================
 const ENGRAVABLE  = 14.7;   // mm — square engravable area per keycap
-const GRID_PITCH  = 18.1;   // mm — center-to-center on engraving table
-const GRID_COLS   = 6;
-const GRID_ROWS   = 6;
+const KEY_PITCH   = 18.1;   // mm — nominal key pitch (for px/mm conversion)
+const MM_TO_PX    = 52 / KEY_PITCH; // ≈ 2.87 px per mm (keeps same visual key size)
 
 // QWERTY labels for keys 0-29 (left then right per row, thumb keys 30-35 unlabeled)
 const QWERTY_LABELS = [
@@ -497,10 +499,8 @@ const QWERTY_LABELS = [
   'n','m',',','.',`'`,  // 25-29: right row 2
 ];
 
-// Keyboard display scale: px per ZMK centunit
-const KB_SCALE    = 0.52;
-const KEY_UNIT    = 100 * KB_SCALE;   // px per key unit
-const KEY_PAD     = 3;               // px gap between keys
+const KEY_DISP_PX = KEY_PITCH * MM_TO_PX; // ≈ 52px display size per key
+const KEY_PAD     = 3;                     // px gap between keys
 
 // =============================================================================
 // STATE
@@ -508,10 +508,9 @@ const KEY_PAD     = 3;               // px gap between keys
 const state = {
   keys: KEYS_RAW.map(([id, x, y]) => ({
     id,
-    x,
-    y,
+    x,           // mm — Fusion X (negative = left half)
+    y,           // mm — Fusion Z (increases toward user)
     label:   '',
-    gridPos: id,   // default: sequential, key N → grid position N
     scale:   null, // null = use global
     offsetX: null,
     offsetY: null,
@@ -536,15 +535,6 @@ function applyCase(text) {
   if (state.fontCase === 'upper') return text.toUpperCase();
   if (state.fontCase === 'lower') return text.toLowerCase();
   return text;
-}
-
-function gridCenter(pos) {
-  const col = pos % GRID_COLS;
-  const row = Math.floor(pos / GRID_COLS);
-  return {
-    x: (col - (GRID_COLS - 1) / 2) * GRID_PITCH,
-    y: (row - (GRID_ROWS - 1) / 2) * GRID_PITCH,
-  };
 }
 
 function escHtml(s) {
@@ -727,12 +717,17 @@ function labelToPath(label, fontSizeMm, cxMm, cyMm, key) {
 function renderKeyboard() {
   const svg = document.getElementById('kbSvg');
 
-  // Bounding box of all keys
-  const maxX = 1100 + 100;  // rightmost key x + key width
-  const maxY = 336  + 100;  // bottom-most key y + key height
+  // Compute bounding box from real mm coordinates
+  const allX = state.keys.map(k => k.x);
+  const allY = state.keys.map(k => k.y);
+  const minX = Math.min(...allX);
+  const minY = Math.min(...allY);
+  const maxX = Math.max(...allX);
+  const maxY = Math.max(...allY);
 
-  const W = maxX * KB_SCALE + KEY_PAD;
-  const H = maxY * KB_SCALE + KEY_PAD;
+  const marginPx = 8;
+  const W = (maxX - minX) * MM_TO_PX + KEY_DISP_PX + marginPx * 2;
+  const H = (maxY - minY) * MM_TO_PX + KEY_DISP_PX + marginPx * 2;
 
   // viewBox stays at natural size; zoom is applied via width/height
   svg.setAttribute('width',   W * state.zoom);
@@ -740,27 +735,30 @@ function renderKeyboard() {
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.innerHTML = '';
 
-  // px/mm ratio in keyboard coordinate space
-  const PX_PER_MM = KEY_UNIT / 18.1;
+  const kw = KEY_DISP_PX - KEY_PAD;
+  const kh = KEY_DISP_PX - KEY_PAD;
 
   for (const key of state.keys) {
-    const px = key.x * KB_SCALE + KEY_PAD / 2;
-    const py = key.y * KB_SCALE + KEY_PAD / 2;
-    const kw = KEY_UNIT - KEY_PAD;
-    const kh = KEY_UNIT - KEY_PAD;
-    const cx = px + kw / 2;
-    const cy = py + kh / 2;
+    // Key centre in pixel space
+    const cx = (key.x - minX) * MM_TO_PX + KEY_DISP_PX / 2 + marginPx;
+    const cy = (key.y - minY) * MM_TO_PX + KEY_DISP_PX / 2 + marginPx;
+    const px = cx - kw / 2;
+    const py = cy - kh / 2;
 
     const isSel = key.id === state.selectedId;
     const display = applyCase(qwertyLabel(key));
 
     // Per-key scale/offset applied to the keyboard preview label
-    const labelFontPx = keyScale(key) * ENGRAVABLE * PX_PER_MM;
-    const oxPx = keyOffsetX(key) * (ENGRAVABLE / 2) * PX_PER_MM;
-    const oyPx = keyOffsetY(key) * (ENGRAVABLE / 2) * PX_PER_MM;
+    const labelFontPx = keyScale(key) * ENGRAVABLE * MM_TO_PX;
+    const oxPx = keyOffsetX(key) * (ENGRAVABLE / 2) * MM_TO_PX;
+    const oyPx = keyOffsetY(key) * (ENGRAVABLE / 2) * MM_TO_PX;
+
+    // Each half is rotated ±10° around the key centre to match the physical tilt.
+    const rot = key.x < 0 ? 10 : -10;
 
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     g.setAttribute('class', `kkey${isSel ? ' sel' : ''}`);
+    g.setAttribute('transform', `rotate(${rot}, ${cx.toFixed(2)}, ${cy.toFixed(2)})`);
     g.dataset.id = key.id;
 
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
@@ -845,8 +843,6 @@ function renderKeyEditor() {
   const key = state.keys.find(k => k.id === state.selectedId);
   if (!key) return;
 
-  const gpRow = Math.floor(key.gridPos / GRID_COLS) + 1;
-  const gpCol = (key.gridPos % GRID_COLS) + 1;
   const isThumb = key.id >= 30;
   const labelReadonly = state.qwertyMode && !isThumb;
 
@@ -873,7 +869,7 @@ function renderKeyEditor() {
   pane.innerHTML = `
     <div class="key-badge">
       <span class="num">#${key.id}</span>
-      <span class="info">${isThumb ? 'Thumb' : `Grid ${gpRow}&times;${gpCol}`}</span>
+      <span class="info">${isThumb ? 'Thumb' : `Row ${key.id < 10 ? 0 : key.id < 20 ? 1 : 2}`} &nbsp;(${key.x.toFixed(1)}, ${key.y.toFixed(1)} mm)</span>
     </div>
 
     <div class="key-preview-wrap" id="keyPreviewWrap">${buildKeyPreviewSvg(key)}</div>
@@ -886,13 +882,6 @@ function renderKeyEditor() {
              style="font-family:&quot;${escHtml(state.fontFamily)}&quot;,system-ui">
     </div>
 
-    <div class="form-row">
-      <label>Grid position <span>0 – 35</span></label>
-      <input type="number" id="keyGridInput" min="0" max="35" value="${key.gridPos}">
-    </div>
-    <div style="font-size:0.7rem;color:#6b7280;margin-top:-8px;margin-bottom:10px">
-      Row ${gpRow}, Col ${gpCol} on the engraving table
-    </div>
     ${perKeyControls}`;
 
   if (!labelReadonly) {
@@ -902,14 +891,6 @@ function renderKeyEditor() {
       document.getElementById('keyPreviewWrap').innerHTML = buildKeyPreviewSvg(key);
     });
   }
-
-  document.getElementById('keyGridInput').addEventListener('change', e => {
-    const v = parseInt(e.target.value);
-    if (!isNaN(v) && v >= 0 && v <= 35) {
-      key.gridPos = v;
-      renderKeyEditor();
-    }
-  });
 
   if (!state.syncScaleOffset) {
     document.getElementById('kScaleRange').addEventListener('input', e => {
@@ -941,13 +922,21 @@ function renderKeyEditor() {
 function buildEngraveSVG(forPreview = false) {
   // SVG canvas in mm, origin top-left
   // Grid center sits at (originX, originY) in SVG coordinates
-  const margin = 5;
-  const totalW = (GRID_COLS - 1) * GRID_PITCH + ENGRAVABLE;
-  const totalH = (GRID_ROWS - 1) * GRID_PITCH + ENGRAVABLE;
-  const svgW   = totalW + margin * 2;
-  const svgH   = totalH + margin * 2;
-  const originX = margin + totalW / 2;
-  const originY = margin + totalH / 2;
+  // SVG canvas in mm — real-world key positions with a small margin around them.
+  // key.x / key.y are Fusion 360 coordinates (mm); (0, 0) is the keyboard centre.
+  const allX = state.keys.map(k => k.x);
+  const allY = state.keys.map(k => k.y);
+  const kMinX = Math.min(...allX);
+  const kMinY = Math.min(...allY);
+  const kMaxX = Math.max(...allX);
+  const kMaxY = Math.max(...allY);
+
+  const margin  = 5;
+  const svgW    = (kMaxX - kMinX) + ENGRAVABLE + margin * 2;
+  const svgH    = (kMaxY - kMinY) + ENGRAVABLE + margin * 2;
+  // originX/Y convert Fusion coords to SVG coords: fusion (0,0) → SVG origin offset
+  const originX = -kMinX + ENGRAVABLE / 2 + margin;
+  const originY = -kMinY + ENGRAVABLE / 2 + margin;
 
   const parts = {
     cells:      [],
@@ -958,12 +947,9 @@ function buildEngraveSVG(forPreview = false) {
 
   // Cell outlines + labels
   for (const key of state.keys) {
-    const gp = key.gridPos;
-    if (gp < 0 || gp >= GRID_COLS * GRID_ROWS) continue;
-
-    const gc = gridCenter(gp);
-    const cx = originX + gc.x;
-    const cy = originY + gc.y;
+    // Key centre in SVG (mm) coords
+    const cx = key.x + originX;
+    const cy = key.y + originY;
     const ex = cx - ENGRAVABLE / 2;
     const ey = cy - ENGRAVABLE / 2;
 
@@ -977,7 +963,7 @@ function buildEngraveSVG(forPreview = false) {
       parts.guides.push(
         `<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="0.25" fill="#999"/>`,
         `<text x="${(ex + 0.8).toFixed(2)}" y="${(ey + 2.2).toFixed(2)}"` +
-        ` font-size="1.8" fill="#bbb">${gp}</text>`
+        ` font-size="1.8" fill="#bbb">${key.id}</text>`
       );
     }
 
