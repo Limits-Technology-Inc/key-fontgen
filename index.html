@@ -523,7 +523,7 @@ const state = {
   offsetY:         0.00,   // global fraction of ENGRAVABLE/2 → mm shift down
   syncScaleOffset: true,   // when true, all keys use global scale/offset
   qwertyMode:      false,  // when true, keys 0-29 show QWERTY labels
-  zoom:            1.0,    // keyboard display zoom
+  zoom:            2.0,    // keyboard display zoom
   selectedId:      null,
   otFont:          null,   // opentype.js Font object (null = no path generation)
   fontBuffer:      null,   // raw font bytes — embedded in SVG when paths unavailable
@@ -606,52 +606,66 @@ async function loadFont(name) {
   state.otFont     = null;
   state.fontBuffer = null;
 
-  // --- Strategy 1: Google Webfonts Helper → TTF (opentype.js native format) ---
-  let fontBuffer = null;
-  try {
-    const fontId = name.toLowerCase().replace(/\s+/g, '-');
-    const apiRes = await fetch(`https://gwfh.mranftl.com/api/fonts/${fontId}?subsets=latin`);
-    if (apiRes.ok) {
-      const data = await apiRes.json();
-      const v = (data.variants ?? []).find(v => v.id === 'regular' || v.id === '400') ?? data.variants?.[0];
-      if (v?.urls?.ttf) {
-        const r = await fetch(v.urls.ttf);
-        if (r.ok) fontBuffer = await r.arrayBuffer();
-      }
-    }
-  } catch (_) { /* GWFH unreachable */ }
+  // Name variants used by the different fetch strategies
+  const idDash   = name.toLowerCase().replace(/\s+/g, '-');  // e.g. "jacquard-24"
+  const idFlat   = name.toLowerCase().replace(/\s+/g, '');   // e.g. "jacquard24"
+  const pascal   = name.split(/\s+/).map(w => w[0].toUpperCase() + w.slice(1)).join(''); // "Jacquard24"
 
-  // --- Strategy 2: Google Fonts CSS → extract woff2/woff URL ---
-  if (!fontBuffer) {
-    try {
-      const cssRes = await fetch(cssUrl);
-      if (cssRes.ok) {
-        const css = await cssRes.text();
-        const urls = [...css.matchAll(/url\((https:\/\/fonts\.gstatic\.com\/[^)]+)\)/g)].map(m => m[1]);
-        if (urls.length) {
-          const r = await fetch(urls[urls.length - 1]); // last = latin subset
-          if (r.ok) fontBuffer = await r.arrayBuffer();
-        }
+  // Sources tried in order. Each returns an ArrayBuffer or throws.
+  // We stop as soon as opentype.parse succeeds (paths available).
+  // The first successfully-fetched buffer is kept for SVG font embedding as a fallback.
+  const sources = [
+    // 1. Google Webfonts Helper → TTF (opentype.js handles TTF natively, most reliable parse)
+    async () => {
+      const api = await fetch(`https://gwfh.mranftl.com/api/fonts/${idDash}?subsets=latin`);
+      if (!api.ok) throw new Error();
+      const d = await api.json();
+      const v = (d.variants ?? []).find(v => v.id === 'regular' || v.id === '400') ?? d.variants?.[0];
+      if (!v?.urls?.ttf) throw new Error();
+      const r = await fetch(v.urls.ttf);
+      if (!r.ok) throw new Error();
+      return r.arrayBuffer();
+    },
+    // 2. Google Fonts GitHub repo → TTF (covers every font including recent additions like Jacquard 24)
+    async () => {
+      for (const lic of ['ofl', 'apache', 'ufl']) {
+        const r = await fetch(
+          `https://raw.githubusercontent.com/google/fonts/main/${lic}/${idFlat}/${pascal}-Regular.ttf`
+        );
+        if (r.ok) return r.arrayBuffer();
       }
-    } catch (_) { /* Google Fonts unreachable */ }
+      throw new Error();
+    },
+    // 3. Google Fonts CDN → woff2 (opentype.js may fail on some Brotli variants, but bytes
+    //    are still kept for self-contained SVG embedding as a last resort)
+    async () => {
+      const cssRes = await fetch(cssUrl);
+      if (!cssRes.ok) throw new Error();
+      const css = await cssRes.text();
+      const urls = [...css.matchAll(/url\((https:\/\/fonts\.gstatic\.com\/[^)]+)\)/g)].map(m => m[1]);
+      if (!urls.length) throw new Error();
+      const r = await fetch(urls[urls.length - 1]);
+      if (!r.ok) throw new Error();
+      return r.arrayBuffer();
+    },
+  ];
+
+  for (const getBuffer of sources) {
+    if (state.otFont) break;
+    let buf;
+    try { buf = await getBuffer(); } catch { continue; }
+    if (!state.fontBuffer) state.fontBuffer = buf; // keep first successful fetch for embedding
+    try { state.otFont = opentype.parse(buf); } catch { /* parse failed — try next source */ }
   }
 
-  // --- Parse for path generation; always keep bytes for SVG embedding ---
-  if (fontBuffer) {
-    state.fontBuffer = fontBuffer;
-    try {
-      state.otFont = opentype.parse(fontBuffer);
-      msg.textContent = `✓ ${name} (paths)`;
-      msg.className = 'ok';
-    } catch (parseErr) {
-      // Bytes fetched but opentype.js can't parse (e.g. woff2 Brotli variant)
-      // Font will still be embedded in exported SVG
-      console.warn('opentype.parse failed:', parseErr.message);
-      msg.textContent = `✓ ${name} (font embedded — open in Inkscape to convert to paths)`;
-      msg.className = 'ok';
-    }
+  if (state.otFont) {
+    msg.textContent = `\u2713 ${name} (paths)`;
+    msg.className = 'ok';
+  } else if (state.fontBuffer) {
+    msg.textContent = `\u2713 ${name} (font embedded \u2014 use Inkscape \u2192 Object to Path for engravers)`;
+    msg.className = 'ok';
   } else {
-    msg.textContent = `${name} (font servers unreachable — export may use fallback font)`;
+    msg.textContent = `${name} (offline \u2014 export uses font name only)`;
     msg.className = 'warn';
   }
 
@@ -679,12 +693,21 @@ function labelToPath(label, fontSizeMm, cxMm, cyMm, key) {
   if (bb.x1 === bb.x2 || bb.y1 === bb.y2) return null;
 
   const tw = bb.x2 - bb.x1;
-  const th = bb.y2 - bb.y1;
   const ox = keyOffsetX(key) * (ENGRAVABLE / 2);
   const oy = keyOffsetY(key) * (ENGRAVABLE / 2);
 
+  // Horizontal: center by this character's own bounding box.
   const px = cxMm - bb.x1 - tw / 2 + ox;
-  const py = cyMm - bb.y1 - th / 2 + oy;
+
+  // Vertical: use a fixed reference glyph ('H') to establish a consistent baseline.
+  // Centering each character by its own bounding box causes letters with descenders
+  // (Q, J, G…) to appear higher — their tail widens the box, which pulls the
+  // per-character center downward, and the code compensates by pushing the body up.
+  // Using a shared reference means all characters sit on the same baseline and only
+  // the descender extends below, which is the expected typographic result.
+  const ref = font.getPath('H', 0, 0, fontSizeMm).getBoundingBox();
+  const refCenterY = ref.y1 + (ref.y2 - ref.y1) / 2;
+  const py = cyMm - refCenterY + oy;
 
   const finalPath = font.getPath(label, px, py, fontSizeMm);
   return { pathData: finalPath.toPathData(4), bb };
@@ -982,20 +1005,22 @@ function buildEngraveSVG(forPreview = false) {
     ` stroke="#f00" stroke-width="0.15"/>`
   );
 
-  // Font embedding: if no paths, embed the font binary so the SVG is self-contained
+  // Font for the text fallback path.
+  // Preview (forPreview=true): no style block needed — the SVG is rendered inline in the page,
+  //   which already has the font loaded via the <link> tag in <head>. Inline SVG inherits
+  //   document-level @font-face, so font-family on <text> elements just works.
+  // Export (forPreview=false): embed the font binary as a base64 data URI so the file is
+  //   fully self-contained (no internet required when opened in Inkscape / other editors).
   let styleBlock = '';
-  if (!state.otFont && parts.labels.length) {
+  if (!state.otFont && parts.labels.length && !forPreview) {
     if (state.fontBuffer) {
       const mime = detectFontMime(state.fontBuffer);
       const fmt  = mime === 'font/woff2' ? 'woff2' : mime === 'font/woff' ? 'woff' : 'truetype';
       const b64  = arrayBufferToBase64(state.fontBuffer);
       styleBlock = `<style>@font-face { font-family: "${escHtml(state.fontFamily)}";` +
                    ` src: url("data:${mime};base64,${b64}") format("${fmt}"); }</style>\n  `;
-    } else {
-      // Last resort: external Google Fonts import (requires network in the SVG viewer)
-      styleBlock = `<style>@import url('https://fonts.googleapis.com/css2?family=` +
-                   `${encodeURIComponent(state.fontFamily)}&amp;display=swap');</style>\n  `;
     }
+    // No fontBuffer: text elements carry font-family only; viewer needs font installed.
   }
 
   return `<?xml version="1.0" encoding="UTF-8"?>
