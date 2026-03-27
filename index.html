@@ -489,6 +489,12 @@ const ENGRAVABLE  = 14.7;   // mm — square engravable area per keycap
 const KEY_PITCH   = 18.1;   // mm — nominal key pitch (for px/mm conversion)
 const MM_TO_PX    = 52 / KEY_PITCH; // ≈ 2.87 px per mm (keeps same visual key size)
 
+// Engraving grid — used by buildEngraveSVG only (not the keyboard GUI).
+// Keys are placed sequentially in a rectangular grid on the engraving table.
+const GRID_COLS   = 6;
+const GRID_ROWS   = 6;
+const GRID_PITCH  = 18.1;   // mm — center-to-center spacing on the engraving table
+
 // QWERTY labels for keys 0-29 (left then right per row, thumb keys 30-35 unlabeled)
 const QWERTY_LABELS = [
   'q','w','e','r','t',  // 0-4:  left row 0
@@ -535,6 +541,15 @@ function applyCase(text) {
   if (state.fontCase === 'upper') return text.toUpperCase();
   if (state.fontCase === 'lower') return text.toLowerCase();
   return text;
+}
+
+function gridCenter(pos) {
+  const col = pos % GRID_COLS;
+  const row = Math.floor(pos / GRID_COLS);
+  return {
+    x: (col - (GRID_COLS - 1) / 2) * GRID_PITCH,
+    y: (row - (GRID_ROWS - 1) / 2) * GRID_PITCH,
+  };
 }
 
 function escHtml(s) {
@@ -922,21 +937,15 @@ function renderKeyEditor() {
 function buildEngraveSVG(forPreview = false) {
   // SVG canvas in mm, origin top-left
   // Grid center sits at (originX, originY) in SVG coordinates
-  // SVG canvas in mm — real-world key positions with a small margin around them.
-  // key.x / key.y are Fusion 360 coordinates (mm); (0, 0) is the keyboard centre.
-  const allX = state.keys.map(k => k.x);
-  const allY = state.keys.map(k => k.y);
-  const kMinX = Math.min(...allX);
-  const kMinY = Math.min(...allY);
-  const kMaxX = Math.max(...allX);
-  const kMaxY = Math.max(...allY);
-
+  // SVG canvas in mm — keys laid out in a rectangular GRID_COLS × GRID_ROWS grid,
+  // matching the physical jig used on the engraving table.
   const margin  = 5;
-  const svgW    = (kMaxX - kMinX) + ENGRAVABLE + margin * 2;
-  const svgH    = (kMaxY - kMinY) + ENGRAVABLE + margin * 2;
-  // originX/Y convert Fusion coords to SVG coords: fusion (0,0) → SVG origin offset
-  const originX = -kMinX + ENGRAVABLE / 2 + margin;
-  const originY = -kMinY + ENGRAVABLE / 2 + margin;
+  const totalW  = (GRID_COLS - 1) * GRID_PITCH + ENGRAVABLE;
+  const totalH  = (GRID_ROWS - 1) * GRID_PITCH + ENGRAVABLE;
+  const svgW    = totalW + margin * 2;
+  const svgH    = totalH + margin * 2;
+  const originX = margin + totalW / 2;
+  const originY = margin + totalH / 2;
 
   const parts = {
     cells:      [],
@@ -945,11 +954,14 @@ function buildEngraveSVG(forPreview = false) {
     guides:     [],
   };
 
-  // Cell outlines + labels
+  // Cell outlines + labels — key.id maps 1-to-1 to grid position
   for (const key of state.keys) {
-    // Key centre in SVG (mm) coords
-    const cx = key.x + originX;
-    const cy = key.y + originY;
+    const gp = key.id;
+    if (gp < 0 || gp >= GRID_COLS * GRID_ROWS) continue;
+
+    const gc = gridCenter(gp);
+    const cx = originX + gc.x;
+    const cy = originY + gc.y;
     const ex = cx - ENGRAVABLE / 2;
     const ey = cy - ENGRAVABLE / 2;
 
@@ -963,7 +975,7 @@ function buildEngraveSVG(forPreview = false) {
       parts.guides.push(
         `<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="0.25" fill="#999"/>`,
         `<text x="${(ex + 0.8).toFixed(2)}" y="${(ey + 2.2).toFixed(2)}"` +
-        ` font-size="1.8" fill="#bbb">${key.id}</text>`
+        ` font-size="1.8" fill="#bbb">${gp}</text>`
       );
     }
 
