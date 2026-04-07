@@ -27,3 +27,9 @@ This tool acts as a web-based CAD assistant specifically built to design the typ
 
 - **Vanilla web stack**: Plain HTML, CSS, and JavaScript contained in a single `index.html` file.
 - **Path Generation**: Uses [opentype.js](https://opentype.js.org/) to convert text directly into standard vector paths.
+
+## Current LightBurn Workaround
+
+The software uses google fonts, but not all google fonts are able to be exported as paths. To allow LightBurn to figure out paths, the current workaround is to open the exported SVG in a browser, and use Microsoft Print to PDF to save it as a PDF. Opening the PDF in LightBurn allows it to see the paths. 
+
+Eventually, we will switch to using something like Balor or MeerK04t so that the app directly outputs a file that can be run on the laser engraver.

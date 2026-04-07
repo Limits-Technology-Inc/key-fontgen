@@ -18,7 +18,7 @@ const state = {
   offsetY:         0.00,   // global fraction of ENGRAVABLE/2 → mm shift down
   syncScaleOffset: true,   // when true, all keys use global scale/offset
   qwertyMode:      false,  // when true, keys 0-29 show QWERTY labels
-  zoom:            2.0,    // keyboard display zoom
+  zoom:            0.5,    // keyboard display zoom (visually multiplied by 4)
   selectedId:      null,
   otFont:          null,   // opentype.js Font object (null = no path generation)
   fontBuffer:      null,   // raw font bytes — embedded in SVG when paths unavailable
@@ -235,8 +235,8 @@ function renderKeyboard() {
   const H = (maxY - minY) * MM_TO_PX + KEY_DISP_PX + marginPx * 2;
 
   // viewBox stays at natural size; zoom is applied via width/height
-  svg.setAttribute('width',   W * state.zoom);
-  svg.setAttribute('height',  H * state.zoom);
+  svg.setAttribute('width',   W * state.zoom * 4);
+  svg.setAttribute('height',  H * state.zoom * 4);
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.innerHTML = '';
 
