@@ -33,3 +33,13 @@ This tool acts as a web-based CAD assistant specifically built to design the typ
 The software uses google fonts, but not all google fonts are able to be exported as paths. To allow LightBurn to figure out paths, the current workaround is to open the exported SVG in a browser, and use Microsoft Print to PDF to save it as a PDF. Opening the PDF in LightBurn allows it to see the paths. 
 
 Eventually, we will switch to using something like Balor or MeerK04t so that the app directly outputs a file that can be run on the laser engraver.
+
+## Features To Be Added
+
+- Accurate case outline and color selector
+- Symbol options from Material Design Icons
+- Multiple symbols in each key
+- Better locational control
+- All common layouts (QWERTY, Colemak, Dvorak, etc.)
+- Better Font Preview
+- Better Font Selection
