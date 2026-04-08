@@ -6,7 +6,10 @@ const state = {
     id,
     x,           // mm — Fusion X (negative = left half)
     y,           // mm — Fusion Z (increases toward user)
-    label:   '',
+    label:      '',
+    labelLeft:  '',
+    labelRight: '',
+    labelBoth:  '',
     scale:   null, // null = use global
     offsetX: null,
     offsetY: null,
@@ -18,6 +21,7 @@ const state = {
   offsetY:         0.00,   // global fraction of ENGRAVABLE/2 → mm shift down
   syncScaleOffset: true,   // when true, all keys use global scale/offset
   qwertyMode:      false,  // when true, keys 0-29 show QWERTY labels
+  fourZoneMode:    true,   // when true, 4 zones per key, else simple mode
   zoom:            0.5,    // keyboard display zoom (visually multiplied by 4)
   selectedId:      null,
   otFont:          null,   // opentype.js Font object (null = no path generation)
@@ -27,6 +31,19 @@ const state = {
 // =============================================================================
 // HELPERS
 // =============================================================================
+
+// Zone Configuration
+const ZONES_4 = [
+  { id: 'main',  prop: 'label',      scale: 0.35, ox:  0.00, oy: -0.40 },
+  { id: 'left',  prop: 'labelLeft',  scale: 0.20, ox: -0.65, oy:  0.10 },
+  { id: 'right', prop: 'labelRight', scale: 0.20, ox:  0.65, oy:  0.10 },
+  { id: 'both',  prop: 'labelBoth',  scale: 0.20, ox:  0.00, oy:  0.55 },
+];
+const ZONES_SIMPLE = [
+  { id: 'main',  prop: 'label',      scale: 1.0,  ox:  0.00, oy:  0.00 },
+];
+const getActiveZones = () => state.fourZoneMode ? ZONES_4 : ZONES_SIMPLE;
+
 function applyCase(text) {
   if (state.fontCase === 'upper') return text.toUpperCase();
   if (state.fontCase === 'lower') return text.toLowerCase();
@@ -179,14 +196,11 @@ function updateFontPreview() {
 // OPENTYPE PATH UTILS
 // =============================================================================
 // Returns {pathData, bb} for label centered at (cx, cy) in mm.
-// key is used to resolve per-key or global offsets.
-function labelToPath(label, fontSizeMm, cxMm, cyMm, key) {
+function labelToPath(label, fontSizeMm, cxMm, cyMm, totalOxMm, totalOyMm) {
   if (!label || !state.otFont) return null;
   const font = state.otFont;
 
   // Reject if any character maps to .notdef (glyph index 0 = not in font).
-  // Without this check opentype.js silently renders the .notdef box glyph,
-  // or returns a zero-area path for fonts with an empty .notdef.
   for (const ch of label) {
     if (font.charToGlyph(ch).index === 0) return null;
   }
@@ -196,21 +210,14 @@ function labelToPath(label, fontSizeMm, cxMm, cyMm, key) {
   if (bb.x1 === bb.x2 || bb.y1 === bb.y2) return null;
 
   const tw = bb.x2 - bb.x1;
-  const ox = keyOffsetX(key) * (ENGRAVABLE / 2);
-  const oy = keyOffsetY(key) * (ENGRAVABLE / 2);
 
   // Horizontal: center by this character's own bounding box.
-  const px = cxMm - bb.x1 - tw / 2 + ox;
+  const px = cxMm - bb.x1 - tw / 2 + totalOxMm;
 
   // Vertical: use a fixed reference glyph ('H') to establish a consistent baseline.
-  // Centering each character by its own bounding box causes letters with descenders
-  // (Q, J, G…) to appear higher — their tail widens the box, which pulls the
-  // per-character center downward, and the code compensates by pushing the body up.
-  // Using a shared reference means all characters sit on the same baseline and only
-  // the descender extends below, which is the expected typographic result.
   const ref = font.getPath('H', 0, 0, fontSizeMm).getBoundingBox();
   const refCenterY = ref.y1 + (ref.y2 - ref.y1) / 2;
-  const py = cyMm - refCenterY + oy;
+  const py = cyMm - refCenterY + totalOyMm;
 
   const finalPath = font.getPath(label, px, py, fontSizeMm);
   return { pathData: finalPath.toPathData(4), bb };
@@ -275,14 +282,30 @@ function renderKeyboard() {
     rect.setAttribute('rx', 5);
     g.appendChild(rect);
 
-    const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    txt.setAttribute('class', 'klabel');
-    txt.setAttribute('x',  (cx + oxPx).toFixed(2));
-    txt.setAttribute('y',  (cy + oyPx).toFixed(2));
-    txt.setAttribute('font-size', labelFontPx.toFixed(1));
-    txt.setAttribute('font-family', `"${state.fontFamily}", var(--body-font)`);
-    txt.textContent = display || '\u00a0';
-    g.appendChild(txt);
+    for (const zone of getActiveZones()) {
+      let labelText = zone.id === 'main' ? qwertyLabel(key) : key[zone.prop];
+      let displayZone = applyCase(labelText);
+      if (!displayZone) continue;
+      
+      const zoneFontPx = keyScale(key) * ENGRAVABLE * MM_TO_PX * zone.scale;
+      const zoneOxPx = (keyOffsetX(key) + zone.ox) * (ENGRAVABLE / 2) * MM_TO_PX;
+      const zoneOyPx = (keyOffsetY(key) + zone.oy) * (ENGRAVABLE / 2) * MM_TO_PX;
+
+      const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      txt.setAttribute('class', 'klabel');
+      // Dimmer colors for layers? The CSS class could handle this if we set data-zone
+      txt.setAttribute('data-zone', zone.id);
+      txt.setAttribute('x',  (cx + zoneOxPx).toFixed(2));
+      txt.setAttribute('y',  (cy + zoneOyPx).toFixed(2));
+      txt.setAttribute('font-size', zoneFontPx.toFixed(1));
+      txt.setAttribute('font-family', `"${state.fontFamily}", var(--body-font)`);
+      if (zone.id !== 'main') {
+        txt.setAttribute('fill', 'var(--text-muted)');
+        txt.style.opacity = '0.7';
+      }
+      txt.textContent = displayZone || '\u00a0';
+      g.appendChild(txt);
+    }
 
     const numTxt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     numTxt.setAttribute('class', 'knum');
@@ -309,25 +332,45 @@ function selectKey(id) {
 // KEY EDITOR (right sidebar)
 // =============================================================================
 function buildKeyPreviewSvg(key) {
-  const label = applyCase(qwertyLabel(key));
-  const fontSizeMm = keyScale(key) * ENGRAVABLE;
   const PS = 200;
   const mm2px = PS / ENGRAVABLE;
-  const previewFontPx = fontSizeMm * mm2px;
-  const oxPx = keyOffsetX(key) * (ENGRAVABLE / 2) * mm2px;
-  const oyPx = keyOffsetY(key) * (ENGRAVABLE / 2) * mm2px;
 
   let inner = '';
-  if (state.otFont && label) {
-    const result = labelToPath(label, previewFontPx, PS / 2, PS / 2, key);
-    if (result) inner = `<path d="${result.pathData}" fill="var(--label-color)"/>`;
+  
+  for (const zone of getActiveZones()) {
+    const rawVal = zone.id === 'main' ? qwertyLabel(key) : key[zone.prop];
+    const displayZone = applyCase(rawVal);
+    if (!displayZone) continue;
+    
+    // Scale for this zone
+    const fontSizeMm = keyScale(key) * ENGRAVABLE * zone.scale;
+    const previewFontPx = fontSizeMm * mm2px;
+    
+    // Total offsets for this zone
+    const totalOx = (keyOffsetX(key) + zone.ox) * (ENGRAVABLE / 2);
+    const totalOy = (keyOffsetY(key) + zone.oy) * (ENGRAVABLE / 2);
+    
+    const oxPx = totalOx * mm2px;
+    const oyPx = totalOy * mm2px;
+    
+    const fillCol = zone.id === 'main' ? 'var(--label-color)' : 'var(--text-muted)';
+    
+    let pathContent = '';
+    if (state.otFont) {
+      const result = labelToPath(displayZone, previewFontPx, PS / 2, PS / 2, totalOx, totalOy);
+      if (result) pathContent = `<path d="${result.pathData}" fill="${fillCol}"/>`;
+    }
+    
+    if (pathContent) {
+      inner += pathContent;
+    } else {
+      inner += `<text x="${(PS/2+oxPx).toFixed(1)}" y="${(PS/2+oyPx).toFixed(1)}"
+        text-anchor="middle" dominant-baseline="central"
+        font-family="${escHtml(state.fontFamily)}, var(--body-font)"
+        font-size="${previewFontPx.toFixed(1)}" fill="${fillCol}" opacity="${zone.id === 'main' ? '1' : '0.7'}">${escHtml(displayZone)}</text>`;
+    }
   }
-  if (!inner && label) {
-    inner = `<text x="${(PS/2+oxPx).toFixed(1)}" y="${(PS/2+oyPx).toFixed(1)}"
-      text-anchor="middle" dominant-baseline="central"
-      font-family="${escHtml(state.fontFamily)}, var(--body-font)"
-      font-size="${previewFontPx.toFixed(1)}" fill="var(--label-color)">${escHtml(label)}</text>`;
-  }
+
   return `<svg viewBox="0 0 ${PS} ${PS}" xmlns="http://www.w3.org/2000/svg">
   <rect width="${PS}" height="${PS}" fill="var(--key-bg)"/>
   <rect x="${(PS*0.02).toFixed(1)}" y="${(PS*0.02).toFixed(1)}"
@@ -380,21 +423,51 @@ function renderKeyEditor() {
     <div class="key-preview-wrap" id="keyPreviewWrap">${buildKeyPreviewSvg(key)}</div>
 
     <div class="form-row">
-      <label>Label${labelReadonly ? ' <span style="color:#fbbf24">(QWERTY)</span>' : ''}</label>
-      <input type="text" id="keyLabelInput" value="${escHtml(key.label)}"
-             placeholder="${isThumb ? 'Symbol (optional)…' : 'Text to engrave…'}" maxlength="8"
+      <label>${state.fourZoneMode ? 'Main' : 'Label'}${labelReadonly ? ' <span style="color:#fbbf24">(QWERTY)</span>' : ''}</label>
+      <input type="text" id="kInputMain" value="${escHtml(key.label)}"
+             placeholder="${state.fourZoneMode ? 'Main legend…' : (isThumb ? 'Symbol (optional)…' : 'Text to engrave…')}" maxlength="8"
              ${labelReadonly ? 'disabled' : ''}
              style="font-family:&quot;${escHtml(state.fontFamily)}&quot;,var(--body-font)">
     </div>
+    ${state.fourZoneMode ? `
+    <div class="form-row">
+      <label>Left Layer</label>
+      <input type="text" id="kInputLeft" value="${escHtml(key.labelLeft)}"
+             placeholder="Left layer…" maxlength="8"
+             style="font-family:&quot;${escHtml(state.fontFamily)}&quot;,var(--body-font)">
+    </div>
+    <div class="form-row">
+      <label>Right Layer</label>
+      <input type="text" id="kInputRight" value="${escHtml(key.labelRight)}"
+             placeholder="Right layer…" maxlength="8"
+             style="font-family:&quot;${escHtml(state.fontFamily)}&quot;,var(--body-font)">
+    </div>
+    <div class="form-row">
+      <label>Both Layers</label>
+      <input type="text" id="kInputBoth" value="${escHtml(key.labelBoth)}"
+             placeholder="Both layers…" maxlength="8"
+             style="font-family:&quot;${escHtml(state.fontFamily)}&quot;,var(--body-font)">
+    </div>` : ''}
 
     ${perKeyControls}`;
 
-  if (!labelReadonly) {
-    document.getElementById('keyLabelInput').addEventListener('input', e => {
-      key.label = e.target.value;
-      renderKeyboard();
-      document.getElementById('keyPreviewWrap').innerHTML = buildKeyPreviewSvg(key);
-    });
+  // Binding events
+  const bindInput = (id, prop) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('input', e => {
+        key[prop] = e.target.value;
+        renderKeyboard();
+        document.getElementById('keyPreviewWrap').innerHTML = buildKeyPreviewSvg(key);
+      });
+    }
+  };
+
+  if (!labelReadonly) bindInput('kInputMain', 'label');
+  if (state.fourZoneMode) {
+    bindInput('kInputLeft', 'labelLeft');
+    bindInput('kInputRight', 'labelRight');
+    bindInput('kInputBoth', 'labelBoth');
   }
 
   if (!state.syncScaleOffset) {
@@ -469,26 +542,29 @@ function buildEngraveSVG(forPreview = false) {
       );
     }
 
-    const display = applyCase(qwertyLabel(key));
-    if (!display) continue;
+    for (const zone of getActiveZones()) {
+      const rawVal = zone.id === 'main' ? qwertyLabel(key) : key[zone.prop];
+      const displayZone = applyCase(rawVal);
+      if (!displayZone) continue;
+      
+      const kFontSizeMm = keyScale(key) * ENGRAVABLE * zone.scale;
+      
+      // Calculate specific offset for the zone
+      const combinedOxMm = (keyOffsetX(key) + zone.ox) * (ENGRAVABLE / 2);
+      const combinedOyMm = (keyOffsetY(key) + zone.oy) * (ENGRAVABLE / 2);
+      
+      const pathResult = state.otFont ? labelToPath(displayZone, kFontSizeMm, cx, cy, combinedOxMm, combinedOyMm) : null;
 
-    const kFontSizeMm = keyScale(key) * ENGRAVABLE;
-    const pathResult  = state.otFont ? labelToPath(display, kFontSizeMm, cx, cy, key) : null;
-
-    if (pathResult) {
-      parts.labels.push(`<path d="${pathResult.pathData}" fill="black"/>`);
-    } else {
-      // Text fallback — used when: no font loaded, font doesn't contain this glyph
-      // (e.g. ♦ ♠ on a Latin-only font), or woff2 parse failed.
-      // Font stack includes common symbol fonts so non-Latin glyphs render correctly.
-      const ox = keyOffsetX(key) * (ENGRAVABLE / 2);
-      const oy = keyOffsetY(key) * (ENGRAVABLE / 2);
-      parts.textLabels.push(
-        `<text x="${(cx + ox).toFixed(3)}" y="${(cy + oy).toFixed(3)}"` +
-        ` text-anchor="middle" dominant-baseline="central"` +
-        ` font-family="${escHtml(state.fontFamily)}, 'Segoe UI Symbol', 'Apple Symbols', 'Noto Sans Symbols', sans-serif"` +
-        ` font-size="${kFontSizeMm.toFixed(3)}" fill="black">${escHtml(display)}</text>`
-      );
+      if (pathResult) {
+        parts.labels.push(`<path d="${pathResult.pathData}" fill="black"/>`);
+      } else {
+        parts.textLabels.push(
+          `<text x="${(cx + combinedOxMm).toFixed(3)}" y="${(cy + combinedOyMm).toFixed(3)}"` +
+          ` text-anchor="middle" dominant-baseline="central"` +
+          ` font-family="${escHtml(state.fontFamily)}, 'Segoe UI Symbol', 'Apple Symbols', 'Noto Sans Symbols', sans-serif"` +
+          ` font-size="${kFontSizeMm.toFixed(3)}" fill="black">${escHtml(displayZone)}</text>`
+        );
+      }
     }
   }
 
@@ -680,6 +756,12 @@ document.getElementById('themeToggleBtn').addEventListener('click', () => {
     document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
 });
 
+document.getElementById('fourZoneToggle').addEventListener('change', e => {
+  state.fourZoneMode = e.target.checked;
+  renderKeyboard();
+  renderKeyEditor();
+});
+
 // Keep bulk textarea in sync when labels are edited via the key editor
 // (already handled by renderKeyEditor — sync on open)
 document.getElementById('rightSidebar').addEventListener('focusin', syncBulkFromKeys);
@@ -688,8 +770,9 @@ document.getElementById('rightSidebar').addEventListener('focusin', syncBulkFrom
 // INIT
 // =============================================================================
 // Force checkboxes/sliders to match JS state (prevents browser form-state restoration mismatch)
-document.getElementById('syncToggle').checked  = state.syncScaleOffset;
+document.getElementById('syncToggle').checked   = state.syncScaleOffset;
 document.getElementById('qwertyToggle').checked = state.qwertyMode;
+document.getElementById('fourZoneToggle').checked = state.fourZoneMode;
 document.getElementById('zoomRange').value      = Math.round(state.zoom * 100);
 document.getElementById('zoomDisp').textContent = `${Math.round(state.zoom * 100)}%`;
 renderKeyboard();
