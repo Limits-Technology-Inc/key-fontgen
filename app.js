@@ -26,6 +26,9 @@ const state = {
   selectedId:      null,
   otFont:          null,   // opentype.js Font object (null = no path generation)
   fontBuffer:      null,   // raw font bytes — embedded in SVG when paths unavailable
+  uvOffX:          0.00,   // mm
+  uvOffY:          9.00,   // mm (default shift to align with master UV)
+  uvScale:         19.624, // px/mm
 };
 
 // =============================================================================
@@ -627,6 +630,100 @@ function exportSVG() {
 }
 
 // =============================================================================
+// UV MAP EXPORT (PNG)
+// =============================================================================
+function showUvModal() {
+  document.getElementById('uvModal').classList.add('open');
+}
+
+function exportUVMap() {
+  const SIZE = 4096;
+  const canvas = document.createElement('canvas');
+  canvas.width  = SIZE;
+  canvas.height = SIZE;
+  const ctx = canvas.getContext('2d');
+
+  // Background is transparent by default
+
+  // (0,0) mm is center of keyboard. Map to center of canvas.
+  // We need a scale factor. 1mm = X pixels.
+  // Based on master UV analysis: (3835-261) / 182.12 = 19.624 px/mm
+  const mm2px = state.uvScale; 
+  const centerX = SIZE / 2;
+  const centerY = SIZE / 2;
+
+  state.keys.forEach(key => {
+    // Determine active zones
+    const zones = getActiveZones();
+    
+    zones.forEach(zone => {
+      const rawVal = zone.id === 'main' ? qwertyLabel(key) : key[zone.prop];
+      const displayZone = applyCase(rawVal);
+      if (!displayZone) return;
+
+      const fontSizeMm = keyScale(key) * ENGRAVABLE * zone.scale;
+      const fontSizePx = fontSizeMm * mm2px;
+
+      // Coordinate mapping
+      // Add global UV calibration offsets
+      const mmX = key.x + state.uvOffX;
+      const mmY = key.y + state.uvOffY;
+
+      const pxX = centerX + mmX * mm2px;
+      const pxY = centerY + mmY * mm2px;
+
+      // Local label offsets
+      const localOffXMm = (keyOffsetX(key) + zone.ox) * (ENGRAVABLE / 2);
+      const localOffYMm = (keyOffsetY(key) + zone.oy) * (ENGRAVABLE / 2);
+
+      // Rotation (±10°)
+      const rotRad = (key.x < 0 ? 10 : -10) * Math.PI / 180;
+
+      ctx.save();
+      ctx.translate(pxX, pxY);
+      ctx.rotate(rotRad);
+      
+      // Translate by local offsets relative to rotated key center
+      ctx.translate(localOffXMm * mm2px, localOffYMm * mm2px);
+
+      if (state.otFont) {
+        // Use opentype.js to draw to canvas for perfect path fidelity
+        const font = state.otFont;
+        const probe = font.getPath(displayZone, 0, 0, fontSizeMm);
+        const bb = probe.getBoundingBox();
+        const tw = bb.x2 - bb.x1;
+        
+        // Horizontal centering
+        const dx = -bb.x1 - tw / 2;
+        
+        // Vertical centering using 'H' as reference
+        const ref = font.getPath('H', 0, 0, fontSizeMm).getBoundingBox();
+        const refCenterY = ref.y1 + (ref.y2 - ref.y1) / 2;
+        const dy = -refCenterY;
+
+        const path = font.getPath(displayZone, dx * mm2px, dy * mm2px, fontSizePx);
+        ctx.fillStyle = 'white';
+        path.draw(ctx);
+      } else {
+        // Fallback to canvas text
+        ctx.fillStyle = 'white';
+        ctx.font = `${fontSizePx}px "${state.fontFamily}", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(displayZone, 0, 0);
+      }
+
+      ctx.restore();
+    });
+  });
+
+  const link = document.createElement('a');
+  link.download = 'keycap-uv-legends.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+}
+
+// =============================================================================
 // GRID PREVIEW MODAL
 // =============================================================================
 function showPreview() {
@@ -743,6 +840,25 @@ document.getElementById('zoomRange').addEventListener('input', e => {
 });
 
 document.getElementById('exportBtn').addEventListener('click', exportSVG);
+document.getElementById('uvExportBtn').addEventListener('click', showUvModal);
+document.getElementById('closeUvBtn').addEventListener('click', () => {
+  document.getElementById('uvModal').classList.remove('open');
+});
+document.getElementById('downloadUvBtn').addEventListener('click', exportUVMap);
+
+document.getElementById('uvOffYRange').addEventListener('input', e => {
+  state.uvOffY = parseFloat(e.target.value);
+  document.getElementById('uvOffYDisp').textContent = `${state.uvOffY.toFixed(1)} mm`;
+});
+document.getElementById('uvOffXRange').addEventListener('input', e => {
+  state.uvOffX = parseFloat(e.target.value);
+  document.getElementById('uvOffXDisp').textContent = `${state.uvOffX.toFixed(1)} mm`;
+});
+document.getElementById('uvScaleRange').addEventListener('input', e => {
+  state.uvScale = parseFloat(e.target.value);
+  document.getElementById('uvScaleDisp').textContent = `${state.uvScale.toFixed(1)} px/mm`;
+});
+
 document.getElementById('previewBtn').addEventListener('click', showPreview);
 document.getElementById('closePreviewBtn').addEventListener('click', () => {
   document.getElementById('previewModal').classList.remove('open');
@@ -775,5 +891,14 @@ document.getElementById('qwertyToggle').checked = state.qwertyMode;
 document.getElementById('fourZoneToggle').checked = state.fourZoneMode;
 document.getElementById('zoomRange').value      = Math.round(state.zoom * 100);
 document.getElementById('zoomDisp').textContent = `${Math.round(state.zoom * 100)}%`;
+
+// UV Initial Displays
+document.getElementById('uvOffYRange').value = state.uvOffY;
+document.getElementById('uvOffYDisp').textContent = `${state.uvOffY.toFixed(1)} mm`;
+document.getElementById('uvOffXRange').value = state.uvOffX;
+document.getElementById('uvOffXDisp').textContent = `${state.uvOffX.toFixed(1)} mm`;
+document.getElementById('uvScaleRange').value = state.uvScale;
+document.getElementById('uvScaleDisp').textContent = `${state.uvScale.toFixed(1)} px/mm`;
+
 renderKeyboard();
 loadFont('Roboto');

@@ -28,6 +28,7 @@
     <span id="fontStatusMsg"></span>
     <button class="btn ghost" id="themeToggleBtn">Toggle Theme</button>
     <button class="btn ghost" id="previewBtn">Preview Grid</button>
+    <button class="btn ghost" id="uvExportBtn">Export UV PNG</button>
     <button class="btn" id="exportBtn">Export SVG</button>
   </div>
 </header>
@@ -147,6 +148,40 @@
       <button class="btn ghost" id="closePreviewBtn">Close</button>
     </div>
     <svg id="gridPreviewSvg"></svg>
+  </div>
+</div>
+
+<!-- UV Export Modal -->
+<div class="modal-overlay" id="uvModal">
+  <div class="modal-box" style="width: 400px;">
+    <div class="modal-header">
+      <h2>Export UV Texture (4096px)</h2>
+      <button class="btn ghost" id="closeUvBtn">Close</button>
+    </div>
+    
+    <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 20px;">
+      Generates 4096&times;4096 white-on-transparent PNG texture matching the keyboard physical layout.
+    </div>
+
+    <div class="form-row">
+      <label>Y Calibration <span id="uvOffYDisp">0.0 mm</span></label>
+      <input type="range" id="uvOffYRange" min="-20" max="20" step="0.1" value="0">
+      <div class="bulk-hint">Nudges all legends vertically to match your 3D model's UVs.</div>
+    </div>
+
+    <div class="form-row">
+      <label>X Calibration <span id="uvOffXDisp">0.0 mm</span></label>
+      <input type="range" id="uvOffXRange" min="-20" max="20" step="0.1" value="0">
+    </div>
+
+    <div class="form-row">
+      <label>UV Scale <span id="uvScaleDisp">19.6 px/mm</span></label>
+      <input type="range" id="uvScaleRange" min="10" max="30" step="0.001" value="19.624">
+    </div>
+
+    <div style="margin-top: 24px;">
+      <button class="btn" id="downloadUvBtn" style="width: 100%;">Download 4096px PNG</button>
+    </div>
   </div>
 </div>
 
