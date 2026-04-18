@@ -27,8 +27,8 @@ const state = {
   otFont:          null,   // opentype.js Font object (null = no path generation)
   fontBuffer:      null,   // raw font bytes — embedded in SVG when paths unavailable
   uvOffX:          0.00,   // mm
-  uvOffY:          9.00,   // mm (default shift to align with master UV)
-  uvScale:         19.624, // px/mm
+  uvOffY:          -11.4,  // mm (default shift to align with master UV)
+  uvScale:         17.3,   // px/mm
 };
 
 // =============================================================================
