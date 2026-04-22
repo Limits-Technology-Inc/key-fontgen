@@ -686,7 +686,18 @@ function exportUVMap() {
       // Translate by local offsets relative to rotated key center
       ctx.translate(localOffXMm * mm2px, localOffYMm * mm2px);
 
+      let usePath = false;
       if (state.otFont) {
+        usePath = true;
+        for (const ch of displayZone) {
+          if (state.otFont.charToGlyph(ch).index === 0) {
+            usePath = false;
+            break;
+          }
+        }
+      }
+
+      if (usePath) {
         // Use opentype.js to draw to canvas for perfect path fidelity
         const font = state.otFont;
         const probe = font.getPath(displayZone, 0, 0, fontSizeMm);
@@ -705,9 +716,9 @@ function exportUVMap() {
         ctx.fillStyle = 'white';
         path.draw(ctx);
       } else {
-        // Fallback to canvas text
+        // Fallback to canvas text (allows browser font fallback for symbols like ♦)
         ctx.fillStyle = 'white';
-        ctx.font = `${fontSizePx}px "${state.fontFamily}", sans-serif`;
+        ctx.font = `${fontSizePx}px "${state.fontFamily}", 'Segoe UI Symbol', 'Apple Symbols', 'Noto Sans Symbols', sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(displayZone, 0, 0);
